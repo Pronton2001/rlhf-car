@@ -20,17 +20,21 @@ from l5kit.visualization.visualizer.visualizer import visualize, visualize2, vis
 from bokeh.io import output_notebook, show
 from l5kit.data import MapAPI
 from bokeh.models import Button
+from l5kit.environment.envs.l5_env import GymStepOutput, SimulationConfigGym, L5Env
 
+from src.customEnv.wrapper import L5EnvWrapper
 
 import os
 from pref_db import PrefDB
 
 
 # set env variable for data
-os.environ["L5KIT_DATA_FOLDER"] = "/home/pronton/rl/l5kit_dataset/"
+dataset_path = "/workspace/datasets/"
+source_path = "/workspace/source/"
+os.environ["L5KIT_DATA_FOLDER"] = "/workspace/datasets/"
 dm = LocalDataManager(None)
 # get config
-cfg = load_config_data("/home/pronton/rl/l5kit/examples/RL/gym_config.yaml")
+cfg = load_config_data("src/configs/gym_config.yaml")
 
 ####################################################
 import gym
@@ -51,35 +55,128 @@ from l5kit.visualization.visualizer.visualizer import visualize
 from bokeh.layouts import column, LayoutDOM, row, gridplot
 from bokeh.io import curdoc
 
+MODEL= 'SB3 MODEL'
+MODEL= 'RLLIB MODEL'
+
 # Dataset is assumed to be on the folder specified
 # in the L5KIT_DATA_FOLDER environment variable
 
 # get environment config
-env_config_path = '/home/pronton/rl/l5kit/examples/RL/gg colabs/gym_config.yaml'
+env_config_path = 'src/configs/gym_config.yaml'
 cfg = load_config_data(env_config_path)
 # Train on episodes of length 32 time steps
 train_eps_length = 32
 train_envs = 4
 
 # make train env
-train_sim_cfg = SimulationConfigGym()
-train_sim_cfg.num_simulation_steps = train_eps_length + 1
-env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cfg': train_sim_cfg, 'train': False, 'return_info': True,}
-env = make_vec_env("L5-CLE-v0", env_kwargs=env_kwargs, n_envs=train_envs,
-                   vec_env_cls=SubprocVecEnv, vec_env_kwargs={"start_method": "fork"})
+# Stable baselines 3
+def sb3_model():#FIXME - AttributeError: 'Box' object has no attribute 'low_repr'
+    train_sim_cfg = SimulationConfigGym()
+    train_sim_cfg.num_simulation_steps = train_eps_length + 1
+    env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cfg': train_sim_cfg, 'train': False, 'return_info': True,}
+    env = make_vec_env("L5-CLE-v0", env_kwargs=env_kwargs, n_envs=train_envs,
+                    vec_env_cls=SubprocVecEnv, vec_env_kwargs={"start_method": "fork"})
 
-# make train env
-modelA = SAC.load('/home/pronton/rl/l5kit/examples/RL/gg colabs/logs/SAC_640000_steps.zip', env = env
-        #          , custom_objects = {
-        #     "learning_rate": 0.0,
-        #     "lr_schedule": lambda _: 0.0,
-        #     "clip_range": lambda _: 0.0,
-        # }
-        )
-rollout_sim_cfg = SimulationConfigGym()
-rollout_sim_cfg.num_simulation_steps = 20
-rollout_env = gym.make("L5-CLE-v0", env_config_path=env_config_path, sim_cfg=rollout_sim_cfg, \
-                       use_kinematic=True, train=False, return_info=True)
+    # make train env
+    modelA = SAC.load('/workspace/datasets/logs/06-01-2023_15-15-53/SAC_6000000_steps.zip', env = env
+                    , custom_objects = {
+                "learning_rate": 0.0,
+                "lr_schedule": lambda _: 0.0,
+                "clip_range": lambda _: 0.0,
+            }
+            )
+    rollout_sim_cfg = SimulationConfigGym()
+    rollout_sim_cfg.num_simulation_steps = 20
+    rollout_env = gym.make("L5-CLE-v0", env_config_path=env_config_path, sim_cfg=rollout_sim_cfg, \
+                        use_kinematic=True, train=False, return_info=True)
+    return rollout_env, modelA
+# rollout_env, modelA = sb3_model()
+def rllib_model():
+    checkpoint_path = '/content/drive/MyDrive/Colab Notebooks/l5kit/rllib_logs/2022-12-02/checkpoint_000130'
+    train_envs = 4
+    lr = 3e-3
+    lr_start = 3e-4
+    lr_end = 3e-5
+    config_param_space = {
+        "env": "L5-CLE-V1",
+        "framework": "torch",
+        "num_gpus": 0,
+        # "num_workers": 63,
+        "num_envs_per_worker": train_envs,
+        'q_model_config' : {
+                # "dim": 112,
+                # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+                # "conv_activation": "relu",
+                "post_fcnet_hiddens": [256],
+                "post_fcnet_activation": "relu",
+            },
+        'policy_model_config' : {
+                # "dim": 112,
+                # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+                # "conv_activation": "relu",
+                "post_fcnet_hiddens": [256],
+                "post_fcnet_activation": "relu",
+            },
+        'tau': 0.005,
+        'target_network_update_freq': 1,
+        'replay_buffer_config':{
+            'type': 'MultiAgentPrioritizedReplayBuffer',
+            'capacity': int(1e5),
+            "worker_side_prioritization": True,
+        },
+        'num_steps_sampled_before_learning_starts': 8000,
+        
+        'target_entropy': 'auto',
+    #     "model": {
+    #         "custom_model": "GN_CNN_torch_model",
+    #         "custom_model_config": {'feature_dim':128},
+    #     },
+        '_disable_preprocessor_api': True,
+        "eager_tracing": True,
+        "restart_failed_sub_environments": True,
+    
+        # 'train_batch_size': 4000,
+        # 'sgd_minibatch_size': 256,
+        # 'num_sgd_iter': 16,
+        # 'store_buffer_in_checkpoints' : False,
+        'seed': 42,
+        'batch_mode': 'truncate_episodes',
+        "rollout_fragment_length": 1,
+        'train_batch_size': 2048,
+        'training_intensity' : 32, # (4x 'natural' value = 8)
+        'gamma': 0.8,
+        'twin_q' : True,
+        "lr": 3e-4,
+        "min_sample_timesteps_per_iteration": 8000,
+    }
+    from ray import tune
+    rollout_sim_cfg = SimulationConfigGym()
+    rollout_sim_cfg.num_simulation_steps = 50
+
+    env_kwargs = {'env_config_path': env_config_path, 
+                'use_kinematic': True, 
+                'sim_cfg': rollout_sim_cfg,  
+                'train': False, 
+                'return_info': True}
+
+    rollout_env = L5EnvWrapper(env = L5Env(**env_kwargs), \
+                            raster_size= cfg['raster_params']['raster_size'][0], \
+                            n_channels = 7,)
+    tune.register_env("L5-CLE-V2", 
+                    lambda config: L5EnvWrapper(env = L5Env(**env_kwargs), \
+                                                raster_size= cfg['raster_params']['raster_size'][0], \
+                                                n_channels = 7))
+    from ray.rllib.algorithms.sac import SAC
+    # checkpoint_path = 'l5kit/ray_results/01-01-2023_15-53-49/SAC/SAC_L5-CLE-V1_cf7bb_00000_0_2023-01-01_08-53-50/checkpoint_000170'
+    checkpoint_path = '/workspace/datasets/ray_results/31-12-2022_07-53-04/SAC/SAC_L5-CLE-V1_7bae1_00000_0_2022-12-31_00-53-04/checkpoint_000360'
+    algo = SAC(config=config_param_space, env='L5-CLE-V2')
+    algo.restore(checkpoint_path)
+    return rollout_env, algo
+
+if MODEL == 'RLLIB MODEL':
+    rollout_env, modelA = rllib_model()
+else:
+    rollout_env, modelA = sb3_model()
 
 traj1 = []
 def rollout_episode(model, env, idx = 0):
@@ -109,9 +206,35 @@ def rollout_episode(model, env, idx = 0):
     sim_out = info["sim_outs"][0]
     return sim_out
 
+def rollout_episode_rllib(model, env, idx = 0):
+    """Rollout a particular scene index and return the simulation output.
+
+    :param model: the RL policy
+    :param env: the gym environment
+    :param idx: the scene index to be rolled out
+    :return: the episode output of the rolled out scene
+    """
+
+    # Set the reset_scene_id to 'idx'
+    env.set_reset_id(idx)
+    
+    # Rollout step-by-step
+    obs = env.reset()
+    done = False
+    while True:
+        action = model.compute_single_action(obs, deterministic=True)
+        assert obs.shape == (84,84,7), f'error shape {obs.shape}' 
+        traj1.append([obs, action])
+        obs, _, done, info = env.step(action)
+        if done:
+            break
+
+    # The episode outputs are present in the key "sim_outs"
+    sim_out = info["sim_outs"][0]
+    return sim_out
 sim_outs =[]
 dataset_path = dm.require(cfg["val_data_loader"]["key"])
-zarr_dataset = ChunkedDataset(dataset_path) #TODO: should load 1 time only
+zarr_dataset = ChunkedDataset(dataset_path) 
 zarr_dataset.open()
 
 # define the callback function
@@ -135,7 +258,7 @@ idx = 0
 # define the wait function
 def wait_function(pref):
     global pref_db, idx
-    '''TODO: this function store pref.json (disk storage)
+    '''this function store pref.json (disk storage)
     pref.json:
     t1: [(s0,a0), (s1,a1),...] , t2: [(s0,a0),(s1,a1),...] pref
     '''
@@ -179,7 +302,10 @@ doc = curdoc()
 def PrefInterface(scene_idx):
     doc.clear()
     start_time = time.time()
-    sac_out = rollout_episode(modelA, rollout_env, scene_idx)
+    if MODEL=='RLLIB MODEL':
+        sac_out = rollout_episode_rllib(modelA, rollout_env, scene_idx)
+    else:
+        sac_out = rollout_episode(modelA, rollout_env, scene_idx)
     vis_in = episode_out_to_visualizer_scene_gym_cle(sac_out, mapAPI)
     v1 = visualize4(scene_idx, vis_in, doc, 'left')
     print(time.time() - start_time)

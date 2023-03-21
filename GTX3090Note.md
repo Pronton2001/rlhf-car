@@ -143,3 +143,4 @@ def gym_space_from_dict(d: Dict) -> gym.spaces.Space:
     }
 
 ```
+* AttributeError: 'Box' object has no attribute 'low_repr'
