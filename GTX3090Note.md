@@ -144,3 +144,17 @@ def gym_space_from_dict(d: Dict) -> gym.spaces.Space:
 
 ```
 * AttributeError: 'Box' object has no attribute 'low_repr'
+
+* SAC is differ from PPO since it do not permute data obs
+In L5envWrapper: (both SAC, PPO)
+    obs has type: 
+        + env.reset()['image'].reshape(self.raster_size, self.raster_size, self.n_channels)
+        + onlyImageState = output.obs['image'].reshape(self.rasteimager_size, self.raster_size, self.n_channels)
+    => 112,112,7 (and SAC use Model from Ray rllib, it just accept NxNxdim
+    
+In TorchGNCNN: (only PPO)
+    input_dict['obs'] # 32, 112, 112, 7 (from l5envWrapper)
+    obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # 32 x 7 x 112 x 112 [B, size, size, channels]
+    => 32x 7 x 112 x 112 |=> Neural Net |=> action 
+        => self._num_objects = obs_space.shape[2] # num_of_channels of input, channels x size x size => 112 (quite wrong) => PPO fail to work since it can only see (7x112) pixels
+           
