@@ -83,17 +83,6 @@ dataloader = DataLoader(pairwise_traj_dataset, batch_size=32, shuffle=True)
 import matplotlib.pyplot as plt
 import numpy as np
 k1, _, _ = prefs_train.prefs[0]
-<<<<<<< HEAD
-assert np.array(prefs_train.segments[k1]).shape == (18,2), 'Error shape:' + str(np.array(prefs_train[k1]).shape) + 'vs (18,2)'
-#TODO - Continue to test how to load pref
-for i in range(len(prefs_train)):
-    k1, k2, _ = prefs_train.prefs[i]
-    for k in [k1, k2]:
-        assert np.array(prefs_train.segments[k][0][0]['image']).shape == (7,112,112), 'error shape'
-        for y in range(np.array(prefs_train.segments[k]).shape[0]):
-            plt.imshow(prefs_train.segments[k][y][0]['image'][0]) # k, 0, 0
-            plt.show()
-=======
 
 assert np.array(prefs_train.segments[k1][0][0]).shape == (84, 84, 7),f'error shape: {np.array(prefs_train.segments[k1][0][0]).shape} != (84, 84, 7)'
 assert np.array(prefs_train.segments[k1][0][1]).shape == (3, ),f'error shape: {np.array(prefs_train.segments[k1][0][1]).shape} != (3,)'
@@ -109,7 +98,6 @@ plt.show()
 
 #             plt.imshow(prefs_train.segments[k][y][0][:,:,0]) # k, 0, 0
 #             plt.show()
->>>>>>> 24650b25d039a398a3d4fe0059eaaab08fbc76af
         
 
 # del self.prefs[n]
