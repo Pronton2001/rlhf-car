@@ -2,6 +2,7 @@ from typing import Dict
 import gym
 from l5kit.environment.envs.l5_env import GymStepOutput
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 class L5EnvWrapper(gym.Wrapper):
@@ -16,8 +17,14 @@ class L5EnvWrapper(gym.Wrapper):
     def step(self, action:  np.ndarray) -> GymStepOutput:
         # return GymStepOutput(obs, reward["total"], done, info)
         output =  self.env.step(action)
+        # print(np.array(output.obs['image']).shape)
         onlyImageState = output.obs['image'].reshape(self.raster_size, self.raster_size, self.n_channels)
+        # onlyImageState = output.obs['image']
+        # plt.imshow(onlyImageState[:,:,0])
+        # plt.imshow(onlyImageState[2])
+        # plt.show()
         return GymStepOutput(onlyImageState, output.reward, output.done, output.info)
 
     def reset(self) -> Dict[str, np.ndarray]:
         return self.env.reset()['image'].reshape(self.raster_size, self.raster_size, self.n_channels)
+        return self.env.reset()['image']
