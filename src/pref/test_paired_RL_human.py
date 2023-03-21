@@ -31,7 +31,9 @@ from pref_db import PrefDB
 # set env variable for data
 dataset_path = "/workspace/datasets/"
 source_path = "/workspace/source/"
-os.environ["L5KIT_DATA_FOLDER"] = "/workspace/datasets/"
+dataset_path = '/media/pronton/linux_files/a100code/l5kit/l5kit_dataset/'
+source_path = "~/rl/rlhf-car/"
+os.environ["L5KIT_DATA_FOLDER"] = dataset_path
 dm = LocalDataManager(None)
 # get config
 cfg = load_config_data("src/configs/gym_config.yaml")
@@ -62,7 +64,7 @@ MODEL= 'RLLIB MODEL'
 # in the L5KIT_DATA_FOLDER environment variable
 
 # get environment config
-env_config_path = 'src/configs/gym_config.yaml'
+env_config_path = 'src/configs/gym_config_cpu.yaml'
 cfg = load_config_data(env_config_path)
 # Train on episodes of length 32 time steps
 train_eps_length = 32
@@ -78,7 +80,7 @@ def sb3_model():#FIXME - AttributeError: 'Box' object has no attribute 'low_repr
                     vec_env_cls=SubprocVecEnv, vec_env_kwargs={"start_method": "fork"})
 
     # make train env
-    modelA = SAC.load('/workspace/datasets/logs/06-01-2023_15-15-53/SAC_6000000_steps.zip', env = env
+    modelA = SAC.load(dataset_path +'logs/SAC_640000_steps.zip', env = env
                     , custom_objects = {
                 "learning_rate": 0.0,
                 "lr_schedule": lambda _: 0.0,
@@ -92,7 +94,6 @@ def sb3_model():#FIXME - AttributeError: 'Box' object has no attribute 'low_repr
     return rollout_env, modelA
 # rollout_env, modelA = sb3_model()
 def rllib_model():
-    checkpoint_path = '/content/drive/MyDrive/Colab Notebooks/l5kit/rllib_logs/2022-12-02/checkpoint_000130'
     train_envs = 4
     lr = 3e-3
     lr_start = 3e-4
@@ -151,7 +152,7 @@ def rllib_model():
     }
     from ray import tune
     rollout_sim_cfg = SimulationConfigGym()
-    rollout_sim_cfg.num_simulation_steps = 50
+    rollout_sim_cfg.num_simulation_steps = None
 
     env_kwargs = {'env_config_path': env_config_path, 
                 'use_kinematic': True, 
@@ -168,7 +169,7 @@ def rllib_model():
                                                 n_channels = 7))
     from ray.rllib.algorithms.sac import SAC
     # checkpoint_path = 'l5kit/ray_results/01-01-2023_15-53-49/SAC/SAC_L5-CLE-V1_cf7bb_00000_0_2023-01-01_08-53-50/checkpoint_000170'
-    checkpoint_path = '/workspace/datasets/ray_results/31-12-2022_07-53-04/SAC/SAC_L5-CLE-V1_7bae1_00000_0_2022-12-31_00-53-04/checkpoint_000360'
+    checkpoint_path = dataset_path + 'ray_results/31-12-2022_07-53-04/SAC/SAC_L5-CLE-V1_7bae1_00000_0_2022-12-31_00-53-04/checkpoint_000360'
     algo = SAC(config=config_param_space, env='L5-CLE-V2')
     algo.restore(checkpoint_path)
     return rollout_env, algo
@@ -196,8 +197,9 @@ def rollout_episode(model, env, idx = 0):
     done = False
     while True:
         action, _ = model.predict(obs, deterministic=True)
+        plt.imshow(obs['image'][1])
+        plt.show()
         traj1.append([obs['image'], action])
-        print(np.array(traj1).shape)
         obs, _, done, info = env.step(action)
         if done:
             break
@@ -223,7 +225,16 @@ def rollout_episode_rllib(model, env, idx = 0):
     done = False
     while True:
         action = model.compute_single_action(obs, deterministic=True)
-        assert obs.shape == (84,84,7), f'error shape {obs.shape}' 
+        assert obs.shape == (84,84,7), f'error shape {obs.shape}'  # SAC: use  per
+        # plt.imshow(obs[:,:,0])
+        # plt.imshow(obs[:,:,1])
+        # plt.imshow(obs[:,:,2])
+        # plt.imshow(obs[:,:,3])
+        # plt.imshow(obs[:,:,4])
+        # plt.imshow(obs[:,:,5])
+
+        # plt.imshow(obs.reshape(7,84,84)[1])
+        # plt.show()
         traj1.append([obs, action])
         obs, _, done, info = env.step(action)
         if done:
@@ -262,6 +273,11 @@ def wait_function(pref):
     pref.json:
     t1: [(s0,a0), (s1,a1),...] , t2: [(s0,a0),(s1,a1),...] pref
     '''
+    if not pref:
+        idx = idx + 1
+        PrefInterface(idx)
+        return
+
     t1, t2 = traj1, traj1 #TODO: just for test, after test, change t2 to traj2
     pref_db.append(t1, t2, pref)
     if len(pref_db) >= pref_db.maxlen:

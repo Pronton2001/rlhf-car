@@ -77,20 +77,27 @@ class BTMultiLabelModel(nn.Module):
         return pred
 
 
-prefs_train= PrefDB(maxlen=5).load('/home/pronton/rl/l5kit/src/pref/preferences/5.pkl.gz')
+prefs_train= PrefDB(maxlen=5).load('src/pref/preferences/10.pkl.gz')
 pairwise_traj_dataset = PairwiseTrajDataset(pairwise_traj)
 dataloader = DataLoader(pairwise_traj_dataset, batch_size=32, shuffle=True)
 import matplotlib.pyplot as plt
 import numpy as np
 k1, _, _ = prefs_train.prefs[0]
-assert np.array(prefs_train.segments[k1]).shape == (18,2), 'Error shape:' + str(np.array(prefs_train[k1]).shape) + 'vs (18,2)'
-for i in range(len(prefs_train)):
-    k1, k2, _ = prefs_train.prefs[i]
-    for k in [k1, k2]:
-        assert np.array(prefs_train.segments[k][0][0]['image']).shape == (7,112,112), 'error shape'
-        for y in range(np.array(prefs_train.segments[k]).shape[0]):
-            plt.imshow(prefs_train.segments[k][y][0]['image'][0]) # k, 0, 0
-            plt.show()
+
+assert np.array(prefs_train.segments[k1][0][0]).shape == (84, 84, 7),f'error shape: {np.array(prefs_train.segments[k1][0][0]).shape} != (84, 84, 7)'
+assert np.array(prefs_train.segments[k1][0][1]).shape == (3, ),f'error shape: {np.array(prefs_train.segments[k1][0][1]).shape} != (3,)'
+assert np.array(prefs_train.segments[k1][0][0][:,:,0]).shape == (84, 84), f'error shape: {np.array(prefs_train.segments[k1][0][0][:,:,0]).shape} != (84, 84)'
+
+plt.imshow(np.array(prefs_train.segments[k1][0][0])[6,:,:]) # k, 0, 0
+plt.show()
+
+# for i in range(len(prefs_train)):
+#     k1, k2, _ = prefs_train.prefs[i]
+#     for k in [k1, k2]:
+#         for y in range(np.array(prefs_train.segments[k]).shape[0]):
+
+#             plt.imshow(prefs_train.segments[k][y][0][:,:,0]) # k, 0, 0
+#             plt.show()
         
 
 # del self.prefs[n]
