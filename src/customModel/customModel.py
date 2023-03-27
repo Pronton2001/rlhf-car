@@ -16,6 +16,7 @@ class TorchGNCNN(TorchModelV2, nn.Module):
 
         # raise ValueError(num_outputs)
         self._num_objects = obs_space.shape[2] # num_of_channels of input, size x size x channels
+        assert self._num_objects < 15, f'wrong shape: {obs_space.shape}'
         self._num_actions = num_outputs
         self._feature_dim = model_config["custom_model_config"]['feature_dim']
 
@@ -57,8 +58,10 @@ class TorchGNCNN(TorchModelV2, nn.Module):
             nn.Linear(self._feature_dim, 1),
         )
 
-    def forward(self, input_dict, state, seq_lens):
-        obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # 32 x 112 x 112 x 7 [B, size, size, channels]
+    def forward(self, input_dict, state, seq_lens): # from dataloader? get 32, 112, 112, 7
+        # obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # 32 x 112 x 112 x 7 [B, size, size, channels]
+        obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # [B, C, W, H] -> [B, W, H, C]
+        print('forward', obs_transformed.shape)
         network_output = self.network(obs_transformed)
         value = self._critic_head(network_output)
         self._value = value.reshape(-1)
@@ -183,6 +186,22 @@ class TorchAttentionModel(TorchModelV2, nn.Module):
     def value_function(self):
         return self._value
 
+import numpy as np
+model = TorchGNCNN(np.zeros((112,112,7)), np.array((3,)),3, model_config= {'custom_model_config': {'feature_dim': 128}}, name='')
+
+# In L5env
+batch_data = {'obs': torch.ones((3,7, 112, 112))}
+print('batch', batch_data['obs'].shape)
+
+# After process in L5envWrapper
+obs_batch = batch_data['obs'].reshape(-1,112,112,7)
+print('obs', obs_batch.shape)
+
+obs_transformed = obs_batch.permute(0, 3, 1, 2) # 32 x 112 x 112 x 7 [B, size, size, channels]
+print('transformed', obs_transformed.shape)
+# print(obs_transformed.shape)
+model(input_dict=obs_batch)
+
 # from ray.rllib.models.tf.misc import normc_initializer
 # from ray.rllib.models.tf.tf_modelv2 import TFModelV2
 # from ray.rllib.utils.framework import try_import_tf
@@ -293,3 +312,5 @@ class TorchAttentionModel(TorchModelV2, nn.Module):
 
 #     def value_function(self):
 #         return tf.reshape(self._value_out, [-1])
+# if __name__ == '__main__':
+#     def testGCNN():

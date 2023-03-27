@@ -3,13 +3,12 @@ import gym
 from l5kit.environment.envs.l5_env import GymStepOutput
 import numpy as np
 
-
 class L5EnvWrapper(gym.Wrapper):
-    def __init__(self, env):
+    def __init__(self, env, raster_size = 112, n_channels = 7):
         super().__init__(env)
         self.env = env
-        self.n_channels = 7
-        self.raster_size = 84
+        self.n_channels = n_channels
+        self.raster_size = raster_size
         obs_shape = (self.raster_size, self.raster_size, self.n_channels)
         self.observation_space =gym.spaces.Box(low=0, high=1, shape=obs_shape, dtype=np.float32)
 
