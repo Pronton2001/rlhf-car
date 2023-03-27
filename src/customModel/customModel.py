@@ -14,14 +14,62 @@ class TorchGNCNN(TorchModelV2, nn.Module):
         super().__init__(obs_space, action_space, num_outputs, model_config, name)
         nn.Module.__init__(self)
 
-        # raise ValueError(num_outputs)
+        # raise ValueError(obs_space.shape)
+        self._num_objects = obs_space.shape[2] # num_of_channels of input, size x size x channels
+        self._num_actions = num_outputs
+        self._feature_dim = model_config["custom_model_config"]['feature_dim']
+        assert obs_space.shape[0] > self._num_objects, str(obs_space.shape) + '!=  (size, size, # channels)'
+
+        self.network = nn.Sequential(
+            nn.Conv2d(7, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False),
+            nn.GroupNorm(4, 64),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 32, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False),
+            nn.GroupNorm(2, 32),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Flatten(),
+            nn.Linear(in_features=1568, out_features=self._feature_dim),
+        )
+
+        self._actor_head = nn.Sequential(
+            nn.Linear(self._feature_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, self._num_actions),
+        )
+
+        self._critic_head = nn.Sequential(
+            nn.Linear(self._feature_dim, 1),
+        )
+
+    def forward(self, input_dict, state, seq_lens):
+        obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # input_dict['obs'].shape = [B, size, size, # channels] => obs_transformed.shape = [B, # channels, size, size]
+        assert input_dict['obs'].shape[3] < input_dict['obs'].shape[2] , \
+            str(input_dict['obs'].shape) + ' != (_ ,size,size,n_channels),  obs_transformed: ' + str(obs_transformed.shape)
+        network_output = self.network(obs_transformed) #  [B, # channels, size, size]
+        value = self._critic_head(network_output)
+        self._value = value.reshape(-1)
+        logits = self._actor_head(network_output)
+        return logits, state
+
+    def value_function(self):
+        return self._value
+class TorchGNCNN_separated(TorchModelV2, nn.Module):
+    """
+    Simple Convolution agent that calculates the required linear output layer
+    """
+
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+
+        # raise ValueError(obs_space.shape)
         self._num_objects = obs_space.shape[2] # num_of_channels of input, size x size x channels
         self._num_actions = num_outputs
         self._feature_dim = model_config["custom_model_config"]['feature_dim']
 
-        # linear_flatten = np.prod(obs_space.shape[:2])*64
-
-        self.network = nn.Sequential(
+        self._actor_head = nn.Sequential(
             nn.Conv2d(self._num_objects, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False),
             nn.GroupNorm(4, 64),
             nn.ReLU(),
@@ -32,44 +80,37 @@ class TorchGNCNN(TorchModelV2, nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Flatten(),
             nn.Linear(in_features=1568, out_features=self._feature_dim),
-            # layer_init(nn.Conv2d(self._num_objects, 32, 3, padding=1)),
-            # nn.ReLU(),
-            # layer_init(nn.Conv2d(32, 64, 3, padding=1)),
-            # nn.ReLU(),
-            # nn.Flatten(),
-            # layer_init(nn.Linear(linear_flatten, 1024)),
-            # nn.ReLU(),
-            # layer_init(nn.Linear(1024, 512)),
-            # nn.ReLU(),
-        )
-
-        self._actor_head = nn.Sequential(
-            # layer_init(nn.Linear(512, 256), std=0.01),
-            # nn.ReLU(),
-            # layer_init(nn.Linear(256, self._num_actions), std=0.01)
             nn.Linear(self._feature_dim, 256),
             nn.ReLU(),
             nn.Linear(256, self._num_actions),
         )
 
         self._critic_head = nn.Sequential(
-            # layer_init(nn.Linear(512, 1), std=0.01)
+            nn.Conv2d(self._num_objects, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False),
+            nn.GroupNorm(4, 64),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 32, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False),
+            nn.GroupNorm(2, 32),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Flatten(),
+            nn.Linear(in_features=1568, out_features=self._feature_dim),
             nn.Linear(self._feature_dim, 1),
         )
 
     def forward(self, input_dict, state, seq_lens):
-        # obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # 32 x 112 x 112 x 7 [B, size, size, channels]
-        obs_transformed = input_dict['obs']
-        print('forward', obs_transformed.shape)
-        network_output = self.network(obs_transformed)
-        value = self._critic_head(network_output)
+        obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # input_dict['obs'].shape = [B, size, size, # channels] => obs_transformed.shape = [B, # channels, size, size]
+        assert input_dict['obs'].shape[3] < input_dict['obs'].shape[2] , \
+            str(input_dict['obs'].shape) + ' != (_ ,size,size,n_channels),  obs_transformed: ' + str(obs_transformed.shape)
+        # network_output = self.network(obs_transformed)
+        value = self._critic_head(obs_transformed)
         self._value = value.reshape(-1)
-        logits = self._actor_head(network_output)
+        logits = self._actor_head(obs_transformed)
         return logits, state
 
     def value_function(self):
         return self._value
-# class TorchAttentionSACModel(TorchModelV2, nn.Module):
 
 class MLP(nn.Module):
     """ Very simple multi-layer perceptron (also called FFN)"""
@@ -184,22 +225,22 @@ class TorchAttentionModel(TorchModelV2, nn.Module):
 
     def value_function(self):
         return self._value
+if __name__ == '__main__':                          
+    import numpy as np
+    model = TorchGNCNN(np.zeros((112,112,7)), np.array((3,)),3, model_config= {'custom_model_config': {'feature_dim': 128}}, name='')
 
-import numpy as np
-model = TorchGNCNN(np.zeros((112,112,7)), np.array((3,)),3, model_config= {'custom_model_config': {'feature_dim': 128}}, name='')
+    # In L5env
+    batch_data = {'obs': torch.ones((32,7, 112, 112))}
+    print('batch', batch_data['obs'].shape)
 
-# In L5env
-batch_data = {'obs': torch.ones((3,7, 112, 112))}
-print('batch', batch_data['obs'].shape)
+    # After process in L5envWrapper
+    batch_data = {'obs': torch.ones((32, 112, 112, 7))}
 
-# After process in L5envWrapper
-obs_batch = batch_data['obs'].reshape(-1,112,112,7)
-print('obs', obs_batch.shape)
 
-obs_transformed = obs_batch.permute(0, 3, 1, 2) # 32 x 112 x 112 x 7 [B, size, size, channels]
-print('transformed', obs_transformed.shape)
-# print(obs_transformed.shape)
-model(input_dict=obs_batch)
+    # obs_transformed = obs_batch.permute(0, 3, 1, 2) # 32 x 112 x 112 x 7 [B, size, size, channels]
+    # print('transformed', obs_transformed.shape)
+    # print(obs_transformed.shape)
+    model(input_dict=batch_data)
 
 # from ray.rllib.models.tf.misc import normc_initializer
 # from ray.rllib.models.tf.tf_modelv2 import TFModelV2

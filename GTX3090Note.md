@@ -7,6 +7,7 @@ pip install -e git+https://github.com/DLR-RM/stable-baselines3@7e1db1aaaa0f486cc
 pip install wandb
 pip install tensorflow-probability
 pip install ray[rllib]==2.2.0
+pip install tensorflow==2.11
 ```
 
 ## Use ssh tunneling:
@@ -158,3 +159,17 @@ In TorchGNCNN: (only PPO)
     => 32x 7 x 112 x 112 |=> Neural Net |=> action 
         => self._num_objects = obs_space.shape[2] # num_of_channels of input, channels x size x size => 112 (quite wrong) => PPO fail to work since it can only see (7x112) pixels
            
+
+* AssertionError: torch.Size([32, 112, 112, 7]) != (_ ,112,112,7),  obs_transformed: torch.Size([32, 7, 112, 112])
+but obs_shape = (112,112,7)
+
+* LOW MEM:
+-> reduce num_workers may work
+* Reward drop intermediately    
+-> Maybe due to PPO try to find action to maximize Reward in 
+* 'Box' has no 'low_repr'
+->pip3 install setuptools==65.5.0
+-> downgrade gym==0.22 -> gym==0.21
+* ValueError: loaded state dict contains a parameter group that doesn't match the size of optimizer's group
+-> pip uninstall stable-baselines3
+-> pip install stable-baselines3
