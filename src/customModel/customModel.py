@@ -16,6 +16,7 @@ class TorchGNCNN(TorchModelV2, nn.Module):
 
         # raise ValueError(num_outputs)
         self._num_objects = obs_space.shape[2] # num_of_channels of input, size x size x channels
+        assert self._num_objects < 15, f'wrong shape: {obs_space.shape}'
         self._num_actions = num_outputs
         self._feature_dim = model_config["custom_model_config"]['feature_dim']
 
@@ -57,9 +58,9 @@ class TorchGNCNN(TorchModelV2, nn.Module):
             nn.Linear(self._feature_dim, 1),
         )
 
-    def forward(self, input_dict, state, seq_lens):
+    def forward(self, input_dict, state, seq_lens): # from dataloader? get 32, 112, 112, 7
         # obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # 32 x 112 x 112 x 7 [B, size, size, channels]
-        obs_transformed = input_dict['obs']
+        obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # [B, C, W, H] -> [B, W, H, C]
         print('forward', obs_transformed.shape)
         network_output = self.network(obs_transformed)
         value = self._critic_head(network_output)
@@ -311,3 +312,5 @@ model(input_dict=obs_batch)
 
 #     def value_function(self):
 #         return tf.reshape(self._value_out, [-1])
+# if __name__ == '__main__':
+#     def testGCNN():

@@ -104,7 +104,7 @@ k=crosswalks_availabilities| v=<class 'numpy.ndarray'>| shape=(20, 20)| min=Fals
  
 
 ## Typical bugs:
-* Change _rescale_action() in l5env for ray rllib parallel training
+* Change _rescale_action() in l5env for ray rllib parallel training => all action -> [0,0] or [0,0,0] SAC and PPO train in wrong env, but why SAC still work??? -> not affect action in 
 * Error:
 ValueError: ('Unknown space type for serialization, ', <class 'gym.spaces.multi_binary.MultiBinary'>)
 /root/.local/share/virtualenvs/l5kit-ZbMednhg/lib/python3.8/site-packages/ray/rllib/utils/serialization.py
@@ -157,4 +157,48 @@ In TorchGNCNN: (only PPO)
     obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # 32 x 7 x 112 x 112 [B, size, size, channels]
     => 32x 7 x 112 x 112 |=> Neural Net |=> action 
         => self._num_objects = obs_space.shape[2] # num_of_channels of input, channels x size x size => 112 (quite wrong) => PPO fail to work since it can only see (7x112) pixels
-           
+
+* L5wrapper is wrong
+-> Use reshape -> not change order of tensor but change shape
+-> data['obs'].shape = (7,112,112)
+-> data['obs'].reshape(112,112,7) => Very wrong
+-> im = data['obs'].permute(2,0,1) => im.shape = (112, 112, 7)
+
+Rayrllib:
+`NOTE` SAC can even learn reshaped image (data['obs'].reshape(112,112,7)) with very high accuracy using model by ray rllib. Maybe rllib reshape it again, maybe SAC can extract good pattern from very wierd image :). PPO rllib also test with -30 reward (higher than SAC) but cannot drive successful since it. Even worse, PPO rllib now cannot achieve -100 (wrong action?, reshaped obs?) The reason: PPO directly act and improve learned policy and that maximize reward while SAC learn policy by maximize value and act by greedy policy (argmax Q).
+
+SAC rllib beat PPO stable-baselines3, which mean that SAC although use reshaped obs, it can still learn.
+
+* ambigous in image shape
+At beginning, data['image'].shape = W,H,C
+In code: l5kit/l5kit/l5kit/dataset/ego.py
+```python
+  def get_frame(self, scene_index: int, state_index: int, track_id: Optional[int] = None) -> dict:
+        data = super().get_frame(scene_index, state_index, track_id=track_id)
+        # TODO (@lberg): this should not be here but in the rasterizer
+        data["image"] = data["image"].transpose(2, 0, 1)  # 0,1,C -> C,0,1
+        return data
+```
+The dataset after that become: C, W, H
+To visualize, It need to convert again to W, H, C
+```python
+    im = data["image"].transpose(1, 2, 0) # C, W, H -> W,H,C
+    im = dataset.rasterizer.to_rgb(im)
+```
+
+Our L5EnvWrapperWithoutReshape: convert C, W, H from data_batch and convert to W, H, C
+```python
+    def step(self, action:  np.ndarray) -> GymStepOutput:
+        ...
+        onlyImageState = output.obs['image'].transpose(1,2,0)  # C,W,H -> W, H, C (for SAC/PPO torch model)
+        ...
+
+    def reset(self) -> Dict[str, np.ndarray]:
+        return self.env.reset()['image'].transpose(1,2,0)
+```
+
+# Scenes 
+SAC_RLlib: 
++ at scene 57 turn left although the GT turn right.
++ 82: go straight while GT turn left
++ 89: collide
