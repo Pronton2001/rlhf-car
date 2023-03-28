@@ -181,7 +181,13 @@ but obs_shape = (112,112,7)
 -> data['obs'].shape = (7,112,112)
 -> data['obs'].reshape(112,112,7) => Very wrong
 -> im = data['obs'].permute(2,0,1) => im.shape = (112, 112, 7)
-
+-> Torch Conv need input as form: (Batch size,# channels, Width, Height)
+* TypeError: conv2d() received an invalid combination of arguments - got (numpy.ndarray, Parameter, Parameter, tuple, tuple, tuple, int), but expected one of:
+(Tensor input, Tensor weight, Tensor bias, tuple of ints stride, tuple of ints padding, tuple of ints dilation, int groups) didn't match because some of the arguments have invalid types: (numpy.ndarray, Parameter, Parameter, tuple, tuple, tuple, int)
+-> convert input to Tensor before feed into Torch NN
+* RuntimeError: imag is not implemented for tensors with non-complex dtypes.
+-> convert tensor output of Torch NN to float
+=> model(input).item() # tensor -> reshape to 1 -> detach to numpy -> 
 Rayrllib:
 `NOTE` SAC can even learn reshaped image (data['obs'].reshape(112,112,7)) with very high accuracy using model by ray rllib. Maybe rllib reshape it again, maybe SAC can extract good pattern from very wierd image :). PPO rllib also test with -30 reward (higher than SAC) but cannot drive successful since it. Even worse, PPO rllib now cannot achieve -100 (wrong action?, reshaped obs?) The reason: PPO directly act and improve learned policy and that maximize reward while SAC learn policy by maximize value and act by greedy policy (argmax Q).
 

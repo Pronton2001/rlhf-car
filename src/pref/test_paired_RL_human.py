@@ -247,7 +247,7 @@ def rollout_episode_rllib(model, env, idx = 0, jump = 10):
                 # print('output:', env.ego_output_dict)
                 action_dict = env.ego_output_dict
                 actions = np.concatenate((action_dict['positions'][0][0], action_dict['yaws'][0][0]))
-                assert len(actions) == 3, f'len(action_list) != 3, action_list = {actions}' # x, y, yaw
+                assert_equal(len(actions), 3) # x, y, yaw
             elif type(env) == L5EnvWrapperWithoutReshape:
                 im = obs.transpose(2,0,1) # 
                 # plt.imshow(im[2])
