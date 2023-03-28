@@ -7,6 +7,7 @@ pip install -e git+https://github.com/DLR-RM/stable-baselines3@7e1db1aaaa0f486cc
 pip install wandb
 pip install tensorflow-probability
 pip install ray[rllib]==2.2.0
+pip install tensorflow==2.11
 ```
 
 ## Use ssh tunneling:
@@ -157,13 +158,36 @@ In TorchGNCNN: (only PPO)
     obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # 32 x 7 x 112 x 112 [B, size, size, channels]
     => 32x 7 x 112 x 112 |=> Neural Net |=> action 
         => self._num_objects = obs_space.shape[2] # num_of_channels of input, channels x size x size => 112 (quite wrong) => PPO fail to work since it can only see (7x112) pixels
+<<<<<<< HEAD
+           
+
+* AssertionError: torch.Size([32, 112, 112, 7]) != (_ ,112,112,7),  obs_transformed: torch.Size([32, 7, 112, 112])
+but obs_shape = (112,112,7)
+
+* LOW MEM:
+-> reduce num_workers may work
+* Reward drop intermediately    
+-> Maybe due to PPO try to find action to maximize Reward in 
+* 'Box' has no 'low_repr'
+->pip3 install setuptools==65.5.0
+-> downgrade gym==0.22 -> gym==0.21
+* ValueError: loaded state dict contains a parameter group that doesn't match the size of optimizer's group
+-> pip uninstall stable-baselines3
+-> pip install stable-baselines3
+=======
 
 * L5wrapper is wrong
 -> Use reshape -> not change order of tensor but change shape
 -> data['obs'].shape = (7,112,112)
 -> data['obs'].reshape(112,112,7) => Very wrong
 -> im = data['obs'].permute(2,0,1) => im.shape = (112, 112, 7)
-
+-> Torch Conv need input as form: (Batch size,# channels, Width, Height)
+* TypeError: conv2d() received an invalid combination of arguments - got (numpy.ndarray, Parameter, Parameter, tuple, tuple, tuple, int), but expected one of:
+(Tensor input, Tensor weight, Tensor bias, tuple of ints stride, tuple of ints padding, tuple of ints dilation, int groups) didn't match because some of the arguments have invalid types: (numpy.ndarray, Parameter, Parameter, tuple, tuple, tuple, int)
+-> convert input to Tensor before feed into Torch NN
+* RuntimeError: imag is not implemented for tensors with non-complex dtypes.
+-> convert tensor output of Torch NN to float
+=> model(input).item() # tensor -> reshape to 1 -> detach to numpy -> 
 Rayrllib:
 `NOTE` SAC can even learn reshaped image (data['obs'].reshape(112,112,7)) with very high accuracy using model by ray rllib. Maybe rllib reshape it again, maybe SAC can extract good pattern from very wierd image :). PPO rllib also test with -30 reward (higher than SAC) but cannot drive successful since it. Even worse, PPO rllib now cannot achieve -100 (wrong action?, reshaped obs?) The reason: PPO directly act and improve learned policy and that maximize reward while SAC learn policy by maximize value and act by greedy policy (argmax Q).
 
@@ -202,3 +226,4 @@ SAC_RLlib:
 + at scene 57 turn left although the GT turn right.
 + 82: go straight while GT turn left
 + 89: collide
+>>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1

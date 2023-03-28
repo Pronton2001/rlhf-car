@@ -13,7 +13,7 @@ import ray.rllib.algorithms.ppo as ppo
 from ray import tune
 from ray.rllib.models import ModelCatalog
 # from wrapper import L5EnvWrapper
-from testWrapper import L5EnvWrapper
+from customModel.testWrapper import L5EnvWrapper
 from customModel import TFGNNCNN, TorchGNCNN
 import os
 

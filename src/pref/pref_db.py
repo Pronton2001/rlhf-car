@@ -111,7 +111,6 @@ class PrefDB:
         return len(self.prefs)
 
     def save(self, path):
-        print('saving')
         with gzip.open(path, 'wb') as pkl_file:
             pickle.dump(self, pkl_file)
 
@@ -119,8 +118,6 @@ class PrefDB:
     def load(path):
         with gzip.open(path, 'rb') as pkl_file:
             pref_db = pickle.load(pkl_file)
-            print('load', len(pref_db))
-        print('load', len(pref_db))
         return pref_db
 
 

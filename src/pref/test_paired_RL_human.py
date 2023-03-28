@@ -29,10 +29,15 @@ from pref_db import PrefDB
 
 
 # set env variable for data
+dataset_path = '/media/pronton/linux_files/a100code/l5kit/l5kit_dataset/'
+<<<<<<< HEAD
+source_path = "~/rl/rlhf-car/"
+
 dataset_path = "/workspace/datasets/"
 source_path = "/workspace/source/"
-dataset_path = '/media/pronton/linux_files/a100code/l5kit/l5kit_dataset/'
+=======
 source_path = "/home/pronton/rl/rlhf-car/"
+>>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
 os.environ["L5KIT_DATA_FOLDER"] = dataset_path
 dm = LocalDataManager(None)
 # get config
@@ -242,7 +247,7 @@ def rollout_episode_rllib(model, env, idx = 0, jump = 10):
                 # print('output:', env.ego_output_dict)
                 action_dict = env.ego_output_dict
                 actions = np.concatenate((action_dict['positions'][0][0], action_dict['yaws'][0][0]))
-                assert len(actions) == 3, f'len(action_list) != 3, action_list = {actions}' # x, y, yaw
+                assert_equal(len(actions), 3) # x, y, yaw
             elif type(env) == L5EnvWrapperWithoutReshape:
                 im = obs.transpose(2,0,1) # 
                 # plt.imshow(im[2])
@@ -310,6 +315,73 @@ def button_callback(button):
 
 pref_db = PrefDB(maxlen=5)
 PREFLOGDIR = 'src/pref/preferences/'
+# idx = 0
+# # define the wait function
+# def wait_function(pref):
+#     global pref_db, idx
+#     '''this function store pref.json (disk storage)
+#     pref.json:
+#     t1: [(s0,a0), (s1,a1),...] , t2: [(s0,a0),(s1,a1),...] pref
+#     '''
+#     if not pref:
+#         idx = idx + 1
+#         PrefInterface(idx)
+#         return
+
+#     t1, t2 = traj1, traj1 #TODO: just for test, after test, change t2 to traj2
+#     pref_db.append(t1, t2, pref)
+#     if len(pref_db) >= pref_db.maxlen:
+#         pref_db.save(PREFLOGDIR + str(idx + 1) + '.pkl.gz')
+#         print('saved')
+
+#         for i in range(len(pref_db)): # del all
+#             pref_db.del_first()
+#     idx = idx + 1
+#     PrefInterface(idx)
+
+# def save_prefs(pref_db_train, pref_db_val, log_dir = 'src/pref/preferences'):
+#     train_path = os.path.join(log_dir, 'train.pkl.gz')
+#     pref_db_train.save(train_path)
+#     print("Saved training preferences to '{}'".format(train_path))
+#     val_path = os.path.join(log_dir, 'val.pkl.gz')
+#     pref_db_val.save(val_path)
+#     print("Saved validation preferences to '{}'".format(val_path))
+
+# # Define the buttons
+# left_button = Button(label="Left", button_type="success")
+# right_button = Button(label="Right", button_type="success")
+# cannot_tell_button = Button(label="Can't tell", button_type="warning")
+# same_button = Button(label="Same", button_type="danger")
+
+
+# # Attach the callbacks to the buttons
+# left_button.on_click(lambda: button_callback(left_button))
+# right_button.on_click(lambda: button_callback(right_button))
+# cannot_tell_button.on_click(lambda: button_callback(cannot_tell_button))
+# same_button.on_click(lambda: button_callback(same_button))
+# pref_buttons = row(left_button, column(same_button, cannot_tell_button), right_button)
+
+
+# mapAPI = MapAPI.from_cfg(dm, cfg)
+
+# doc = curdoc()
+# def PrefInterface(scene_idx):
+#     doc.clear()
+#     start_time = time.time()
+#     if MODEL=='RLLIB MODEL':
+#         sac_out = rollout_episode_rllib(modelA, rollout_env, scene_idx)
+#     else:
+#         sac_out = rollout_episode(modelA, rollout_env, scene_idx)
+#     vis_in = episode_out_to_visualizer_scene_gym_cle(sac_out, mapAPI)
+#     v1 = visualize4(scene_idx, vis_in, doc, 'left')
+#     print(time.time() - start_time)
+#     start_time = time.time()
+#     human_out = zarr_to_visualizer_scene(zarr_dataset.get_scene_dataset(scene_idx), mapAPI)
+#     v2 = visualize4(scene_idx, human_out, doc, 'right')
+#     print(time.time() - start_time)
+#     doc.add_root(column(row(v1,v2), pref_buttons))
+
+# PrefInterface(0)
 idx = 0
 # define the wait function
 doc_demo = curdoc()
@@ -320,6 +392,15 @@ else:
     rollout_env, modelA = sb3_model()
 
 def wait_function(pref):
+<<<<<<< HEAD
+    global pref_db, idx
+    '''TODO: this function store pref.json (disk storage)
+    pref.json:
+    t1: [(s0,a0), (s1,a1),...] , t2: [(s0,a0),(s1,a1),...] pref
+    '''
+    t1, t2 = traj1, traj1 #TODO: just for test, after test, change t2 to traj2
+    pref_db.append(t1, t2, pref)
+=======
     global pref_db, idx, traj1, traj2
     '''this function store pref.json (disk storage)
     pref.json:
@@ -339,26 +420,35 @@ def wait_function(pref):
     print('traj2', len(traj2))
     pref_db.append(traj1, traj2, pref)
     traj1, traj2 = [], []
+>>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
     if len(pref_db) >= pref_db.maxlen:
         pref_db.save(PREFLOGDIR + str(idx + 1) + '.pkl.gz')
         print('saved')
         for _ in range(len(pref_db)): # del all
             pref_db.del_first()
+<<<<<<< HEAD
+    # layout.children.remove(button)
+=======
+>>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
     doc_demo.clear()
     print(doc_demo.session_callbacks)
     for cb in doc_demo.session_callbacks:
         doc_demo.remove_periodic_callback(cb)
     print(doc_demo.session_callbacks)
+<<<<<<< HEAD
+
+=======
+>>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
     idx = idx + 1
     PrefInterface(idx)
 
-def save_prefs(pref_db_train, pref_db_val, log_dir = 'src/pref/preferences'):
-    train_path = os.path.join(log_dir, 'train.pkl.gz')
-    pref_db_train.save(train_path)
-    print("Saved training preferences to '{}'".format(train_path))
-    val_path = os.path.join(log_dir, 'val.pkl.gz')
-    pref_db_val.save(val_path)
-    print("Saved validation preferences to '{}'".format(val_path))
+# def save_prefs(pref_db_train, pref_db_val, log_dir = 'src/pref/preferences'):
+#     train_path = os.path.join(log_dir, 'train.pkl.gz')
+#     pref_db_train.save(train_path)
+#     print("Saved training preferences to '{}'".format(train_path))
+#     val_path = os.path.join(log_dir, 'val.pkl.gz')
+#     pref_db_val.save(val_path)
+#     print("Saved validation preferences to '{}'".format(val_path))
 
 # Define the buttons
 left_button = Button(label="Left", button_type="success")
@@ -378,12 +468,48 @@ doc_buttons = curdoc()
 
 mapAPI = MapAPI.from_cfg(dm, cfg)
 
+<<<<<<< HEAD
+doc_demo = curdoc()
+doc_buttons = curdoc()
+# doc4 = curdoc()
+layout = None
+
+# button = Button(label="Play", button_type="success")
+def PrefInterface(scene_idx):
+    # global v1, v2, layout, doc_demo, doc_buttons
+    # doc_demo = curdoc()
+    # doc2 = curdoc()
+
+=======
 jump = 10
 def PrefInterface(scene_idx):
+>>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
     start_time = time.time()
+    # sac_out = rollout_episode(modelA, rollout_env, scene_idx)
     if MODEL=='RLLIB MODEL':
         sac_out = rollout_episode_rllib(modelA, rollout_env, scene_idx, jump)
     else:
+<<<<<<< HEAD
+        sac_out = rollout_episode(modelA, rollout_env, scene_idx)
+    vis_in = episode_out_to_visualizer_scene_gym_cle(sac_out, mapAPI)
+    v1 = visualize4(scene_idx, vis_in, doc_demo, 'left')
+    # v1 = visualize3(scene_idx, vis_in, button)
+    print(time.time() - start_time)
+    start_time = time.time()
+    human_out = zarr_to_visualizer_scene(zarr_dataset.get_scene_dataset(scene_idx), mapAPI)[:50-2]
+    v2 = visualize4(scene_idx, human_out, doc_demo, 'right')
+    # v2 = visualize3(scene_idx, human_out, button)
+    print(time.time() - start_time)
+    # layout1 = v1
+    doc_demo.add_root(row(v1, v2))
+    # layout2 = v2
+    # doc2.add_root(column(v2))
+    doc_buttons.add_root(pref_buttons)
+    # layout = row(doc1.roots + doc2.roots) # a trick to show 2 diff doc horizontally
+    # curdoc().add_root(layout) 
+
+PrefInterface(11)
+=======
         sac_out = rollout_episode(modelA, rollout_env, scene_idx, jump)
     vis_in = episode_out_to_visualizer_scene_gym_cle(sac_out, mapAPI)[::2]
     v1 = visualize4(scene_idx, vis_in, doc_demo, 'left')
@@ -399,3 +525,4 @@ def PrefInterface(scene_idx):
     doc_buttons.add_root(pref_buttons)
 
 PrefInterface(0)
+>>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
