@@ -26,22 +26,19 @@ from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperHFreward, L5EnvWrapp
 
 import os
 from pref_db import PrefDB
+from numpy.testing import assert_equal
 
 
 # set env variable for data
 dataset_path = '/media/pronton/linux_files/a100code/l5kit/l5kit_dataset/'
-<<<<<<< HEAD
 source_path = "~/rl/rlhf-car/"
 
 dataset_path = "/workspace/datasets/"
 source_path = "/workspace/source/"
-=======
-source_path = "/home/pronton/rl/rlhf-car/"
->>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
 os.environ["L5KIT_DATA_FOLDER"] = dataset_path
 dm = LocalDataManager(None)
 # get config
-cfg = load_config_data(source_path + 'src/configs/gym_config_cpu.yaml')
+cfg = load_config_data(source_path + 'src/configs/gym_config84.yaml')
 
 ####################################################
 import gym
@@ -69,7 +66,7 @@ MODEL= 'RLLIB MODEL'
 # in the L5KIT_DATA_FOLDER environment variable
 
 # get environment config
-env_config_path = 'src/configs/gym_config_cpu.yaml'
+env_config_path = 'src/configs/gym_config84.yaml'
 cfg = load_config_data(env_config_path)
 # Train on episodes of length 32 time steps
 train_eps_length = 32
@@ -95,7 +92,7 @@ def sb3_model():#FIXME - AttributeError: 'Box' object has no attribute 'low_repr
     rollout_sim_cfg = SimulationConfigGym()
     rollout_sim_cfg.num_simulation_steps = 20
     rollout_env = gym.make("L5-CLE-v0", env_config_path=env_config_path, sim_cfg=rollout_sim_cfg, \
-                        use_kinematic=True, train=False, return_info=True)
+                        use_kinematic=True, train=True, return_info=True)
     return rollout_env, modelA
 # rollout_env, modelA = sb3_model()
 def rllib_model():
@@ -106,7 +103,7 @@ def rllib_model():
     config_param_space = {
         "env": "L5-CLE-V1",
         "framework": "torch",
-        "num_gpus": 0,
+        "num_gpus": 1,
         # "num_workers": 63,
         "num_envs_per_worker": train_envs,
         'q_model_config' : {
@@ -162,7 +159,7 @@ def rllib_model():
     env_kwargs = {'env_config_path': env_config_path, 
                 'use_kinematic': True, 
                 'sim_cfg': rollout_sim_cfg,  
-                'train': False, 
+                'train': True, 
                 'return_info': True}
 
     rollout_env = L5EnvWrapper(env = L5Env(**env_kwargs), \
@@ -271,15 +268,16 @@ def rollout_episode_rllib(model, env, idx = 0, jump = 10):
     return sim_out
 
 rast = build_rasterizer(cfg, dm)
-zarr_dataset = ChunkedDataset(dm.require(cfg["val_data_loader"]["key"])).open() #TODO: should load 1 time only
+zarr_dataset = ChunkedDataset(dm.require(cfg["train_data_loader"]["key"])).open() #TODO: should load 1 time only
 dataset = EgoDataset(cfg, zarr_dataset, rast)
 traj2 = []
 def getImg(scene_idx, jump= 10):
     global traj2
     indexes = dataset.get_scene_indices(scene_idx)
-    print(len(indexes))
+    # print(len(indexes), scene_idx, indexes[::jump], jump)
+    # start_idx = indexes[0]
     for i in indexes[::jump]: #0, jump, 2*jump,...
-        assert i % jump == 0, f'wrong idx: {i}'
+        # assert (i-start_idx) % jump == 0, f'wrong idx: {i}'
         data = dataset[i]
         # print(data.keys())
         target_positions, target_yaws = data['target_positions'], data['target_yaws']
@@ -382,8 +380,24 @@ PREFLOGDIR = 'src/pref/preferences/'
 #     doc.add_root(column(row(v1,v2), pref_buttons))
 
 # PrefInterface(0)
-idx = 0
-# define the wait function
+directory = 'src/pref/preferences/'
+
+scene_indices = []
+idx = 0 
+for filename in os.listdir(directory):
+    num = filename.split('.')[0]
+    try:
+        scene_indices.append(int(num))
+    except Exception as e:
+        print(e)
+        continue
+if len(scene_indices) == 0:
+    idx = 0 # Original index
+else:
+    print('labeled scene indices:', scene_indices)
+    idx = max(scene_indices) + 1 # Next index    
+
+
 doc_demo = curdoc()
 
 if MODEL == 'RLLIB MODEL':
@@ -391,16 +405,8 @@ if MODEL == 'RLLIB MODEL':
 else:
     rollout_env, modelA = sb3_model()
 
+# define the wait function
 def wait_function(pref):
-<<<<<<< HEAD
-    global pref_db, idx
-    '''TODO: this function store pref.json (disk storage)
-    pref.json:
-    t1: [(s0,a0), (s1,a1),...] , t2: [(s0,a0),(s1,a1),...] pref
-    '''
-    t1, t2 = traj1, traj1 #TODO: just for test, after test, change t2 to traj2
-    pref_db.append(t1, t2, pref)
-=======
     global pref_db, idx, traj1, traj2
     '''this function store pref.json (disk storage)
     pref.json:
@@ -420,25 +426,16 @@ def wait_function(pref):
     print('traj2', len(traj2))
     pref_db.append(traj1, traj2, pref)
     traj1, traj2 = [], []
->>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
     if len(pref_db) >= pref_db.maxlen:
         pref_db.save(PREFLOGDIR + str(idx + 1) + '.pkl.gz')
         print('saved')
         for _ in range(len(pref_db)): # del all
             pref_db.del_first()
-<<<<<<< HEAD
-    # layout.children.remove(button)
-=======
->>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
     doc_demo.clear()
     print(doc_demo.session_callbacks)
     for cb in doc_demo.session_callbacks:
         doc_demo.remove_periodic_callback(cb)
     print(doc_demo.session_callbacks)
-<<<<<<< HEAD
-
-=======
->>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
     idx = idx + 1
     PrefInterface(idx)
 
@@ -468,55 +465,20 @@ doc_buttons = curdoc()
 
 mapAPI = MapAPI.from_cfg(dm, cfg)
 
-<<<<<<< HEAD
-doc_demo = curdoc()
-doc_buttons = curdoc()
-# doc4 = curdoc()
-layout = None
-
-# button = Button(label="Play", button_type="success")
-def PrefInterface(scene_idx):
-    # global v1, v2, layout, doc_demo, doc_buttons
-    # doc_demo = curdoc()
-    # doc2 = curdoc()
-
-=======
 jump = 10
 def PrefInterface(scene_idx):
->>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
     start_time = time.time()
     # sac_out = rollout_episode(modelA, rollout_env, scene_idx)
     if MODEL=='RLLIB MODEL':
         sac_out = rollout_episode_rllib(modelA, rollout_env, scene_idx, jump)
     else:
-<<<<<<< HEAD
-        sac_out = rollout_episode(modelA, rollout_env, scene_idx)
-    vis_in = episode_out_to_visualizer_scene_gym_cle(sac_out, mapAPI)
-    v1 = visualize4(scene_idx, vis_in, doc_demo, 'left')
-    # v1 = visualize3(scene_idx, vis_in, button)
-    print(time.time() - start_time)
-    start_time = time.time()
-    human_out = zarr_to_visualizer_scene(zarr_dataset.get_scene_dataset(scene_idx), mapAPI)[:50-2]
-    v2 = visualize4(scene_idx, human_out, doc_demo, 'right')
-    # v2 = visualize3(scene_idx, human_out, button)
-    print(time.time() - start_time)
-    # layout1 = v1
-    doc_demo.add_root(row(v1, v2))
-    # layout2 = v2
-    # doc2.add_root(column(v2))
-    doc_buttons.add_root(pref_buttons)
-    # layout = row(doc1.roots + doc2.roots) # a trick to show 2 diff doc horizontally
-    # curdoc().add_root(layout) 
-
-PrefInterface(11)
-=======
         sac_out = rollout_episode(modelA, rollout_env, scene_idx, jump)
     vis_in = episode_out_to_visualizer_scene_gym_cle(sac_out, mapAPI)[::2]
     v1 = visualize4(scene_idx, vis_in, doc_demo, 'left')
     print(time.time() - start_time)
     start_time = time.time()
     vis_human_in = zarr_to_visualizer_scene(zarr_dataset.get_scene_dataset(scene_idx), mapAPI)[::2]
-    getImg(0, jump)
+    getImg(scene_idx, jump)
     v2 = visualize4(scene_idx, vis_human_in, doc_demo, 'right')
     print(time.time() - start_time)
     # doc_demo.add_root(column(row(v1,v2), pref_buttons))
@@ -524,5 +486,4 @@ PrefInterface(11)
     doc_demo.add_root(row(v1, v2))
     doc_buttons.add_root(pref_buttons)
 
-PrefInterface(0)
->>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
+PrefInterface(idx)
