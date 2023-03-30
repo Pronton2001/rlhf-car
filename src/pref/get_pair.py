@@ -30,11 +30,11 @@ from numpy.testing import assert_equal
 
 
 # set env variable for data
-dataset_path = '/media/pronton/linux_files/a100code/l5kit/l5kit_dataset/'
-source_path = "~/rl/rlhf-car/"
 
 dataset_path = "/workspace/datasets/"
 source_path = "/workspace/source/"
+dataset_path = '/mnt/datasets/'
+source_path = "/home/pronton/rl/rlhf-car/"
 os.environ["L5KIT_DATA_FOLDER"] = dataset_path
 dm = LocalDataManager(None)
 # get config
@@ -103,7 +103,7 @@ def rllib_model():
     config_param_space = {
         "env": "L5-CLE-V1",
         "framework": "torch",
-        "num_gpus": 1,
+        "num_gpus": 0,
         # "num_workers": 63,
         "num_envs_per_worker": train_envs,
         'q_model_config' : {
@@ -313,73 +313,6 @@ def button_callback(button):
 
 pref_db = PrefDB(maxlen=5)
 PREFLOGDIR = 'src/pref/preferences/'
-# idx = 0
-# # define the wait function
-# def wait_function(pref):
-#     global pref_db, idx
-#     '''this function store pref.json (disk storage)
-#     pref.json:
-#     t1: [(s0,a0), (s1,a1),...] , t2: [(s0,a0),(s1,a1),...] pref
-#     '''
-#     if not pref:
-#         idx = idx + 1
-#         PrefInterface(idx)
-#         return
-
-#     t1, t2 = traj1, traj1 #TODO: just for test, after test, change t2 to traj2
-#     pref_db.append(t1, t2, pref)
-#     if len(pref_db) >= pref_db.maxlen:
-#         pref_db.save(PREFLOGDIR + str(idx + 1) + '.pkl.gz')
-#         print('saved')
-
-#         for i in range(len(pref_db)): # del all
-#             pref_db.del_first()
-#     idx = idx + 1
-#     PrefInterface(idx)
-
-# def save_prefs(pref_db_train, pref_db_val, log_dir = 'src/pref/preferences'):
-#     train_path = os.path.join(log_dir, 'train.pkl.gz')
-#     pref_db_train.save(train_path)
-#     print("Saved training preferences to '{}'".format(train_path))
-#     val_path = os.path.join(log_dir, 'val.pkl.gz')
-#     pref_db_val.save(val_path)
-#     print("Saved validation preferences to '{}'".format(val_path))
-
-# # Define the buttons
-# left_button = Button(label="Left", button_type="success")
-# right_button = Button(label="Right", button_type="success")
-# cannot_tell_button = Button(label="Can't tell", button_type="warning")
-# same_button = Button(label="Same", button_type="danger")
-
-
-# # Attach the callbacks to the buttons
-# left_button.on_click(lambda: button_callback(left_button))
-# right_button.on_click(lambda: button_callback(right_button))
-# cannot_tell_button.on_click(lambda: button_callback(cannot_tell_button))
-# same_button.on_click(lambda: button_callback(same_button))
-# pref_buttons = row(left_button, column(same_button, cannot_tell_button), right_button)
-
-
-# mapAPI = MapAPI.from_cfg(dm, cfg)
-
-# doc = curdoc()
-# def PrefInterface(scene_idx):
-#     doc.clear()
-#     start_time = time.time()
-#     if MODEL=='RLLIB MODEL':
-#         sac_out = rollout_episode_rllib(modelA, rollout_env, scene_idx)
-#     else:
-#         sac_out = rollout_episode(modelA, rollout_env, scene_idx)
-#     vis_in = episode_out_to_visualizer_scene_gym_cle(sac_out, mapAPI)
-#     v1 = visualize4(scene_idx, vis_in, doc, 'left')
-#     print(time.time() - start_time)
-#     start_time = time.time()
-#     human_out = zarr_to_visualizer_scene(zarr_dataset.get_scene_dataset(scene_idx), mapAPI)
-#     v2 = visualize4(scene_idx, human_out, doc, 'right')
-#     print(time.time() - start_time)
-#     doc.add_root(column(row(v1,v2), pref_buttons))
-
-# PrefInterface(0)
 directory = 'src/pref/preferences/'
 
 scene_indices = []
@@ -396,6 +329,7 @@ if len(scene_indices) == 0:
 else:
     print('labeled scene indices:', scene_indices)
     idx = max(scene_indices) + 1 # Next index    
+#idx = 83
 
 
 doc_demo = curdoc()
