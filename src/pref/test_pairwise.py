@@ -1,12 +1,25 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import logging
+from l5kit.configs.config import load_config_data
+from l5kit.rasterization.rasterizer_builder import build_rasterizer
+from l5kit.dataset.ego import EgoDataset
+from l5kit.data.local_data_manager import LocalDataManager
+from l5kit.data.zarr_dataset import ChunkedDataset
+from l5kit.geometry.transform import transform_points
+from l5kit.visualization.utils import TARGET_POINTS_COLOR, draw_trajectory
+from l5kit.visualization.video import write_video
+from src.pref.model import RewardModelPredictor
+from l5kit.configs import load_config_data
 from src.pref.pref_db import PrefDB
-from src.pref.model import RewardModel, train_and_save_RW_model, RewardModelPredictor
 from numpy.testing import assert_equal
 
+import os
+os.environ["L5KIT_DATA_FOLDER"] = "/mnt/datasets/"
 source_path = '/workspace/source/'
 dataset_path = '/workspace/datasets/'
+dataset_path  = '/mnt/datasets'
+source_path = "/home/pronton/rl/rlhf-car/"
 logging.basicConfig(filename='src/log/info.log', level=logging.DEBUG, filemode='w')
 BATCH_SIZE = 5
 N_STEPS= 25
@@ -110,15 +123,47 @@ class BTMultiLabelModel(nn.Module):
 # dataloader = DataLoader(pairwise_traj_dataset, batch_size=32, shuffle=True)
 import matplotlib.pyplot as plt
 import numpy as np
-prefs_train= PrefDB(maxlen=5).load(f'src/pref/preferences/5.pkl.gz')
-k1, _, _ = prefs_train.prefs[0]
+cur = 107
+prefs_train= PrefDB(maxlen=5).load(f'src/pref/preferences/{cur}.pkl.gz')
+k1, k2, _ = prefs_train.prefs[0]
 
 assert np.array(prefs_train.segments[k1][0][0]).shape == (7, 84, 84),f'error shape: {np.array(prefs_train.segments[k1][0][0]).shape} != (7, 84, 84)'
 assert np.array(prefs_train.segments[k1][0][1]).shape == (3, ),f'error shape: {np.array(prefs_train.segments[k1][0][1]).shape} != (3,)'
 assert np.array(prefs_train.segments[k1][0][0][0]).shape == (84, 84), f'error shape: {np.array(prefs_train.segments[k1][0][0][:,:,0]).shape} != (84, 84)'
-# plt.imshow(prefs_train.segments[k1][0][0][3])
-# # plt.imshow(np.array(prefs_train.segments[k1][0][0])[6,:,:]) # k, 0, 0
-# plt.show()
+
+def get_video():
+    dm = LocalDataManager(None)
+    # get config
+    cfg = load_config_data(source_path + 'src/configs/gym_config84.yaml')
+
+    cfg["raster_params"]["map_type"] = "py_semantic"
+    rast = build_rasterizer(cfg, dm)
+    dm = LocalDataManager()
+    dataset_path = dm.require(cfg["train_data_loader"]["key"])
+    train_zarr_dataset = ChunkedDataset(dataset_path)
+    train_zarr_dataset.open()
+    print(train_zarr_dataset)
+
+    dataset = EgoDataset(cfg, train_zarr_dataset, rast)
+    im1, im2 = [], []
+
+    for i in range(cur - 5, cur):
+        print()
+        k1, k2, pref = prefs_train.prefs[i - cur + 5]
+        for j, data in enumerate(prefs_train.segments[k1]):
+            obs, actions = data
+            im = obs.transpose(1, 2, 0) # C, W, H -> W,H,C
+            im = dataset.rasterizer.to_rgb(im) 
+            im1.append(im)
+        for j, data in enumerate(prefs_train.segments[k2]):
+            obs, actions = data
+            im = obs.transpose(1, 2, 0) # C, W, H -> W,H,C
+            im = dataset.rasterizer.to_rgb(im) 
+            im2.append(im)
+    write_video(f'src/pref/preferences/rl/scene{cur-5}_{cur}.mp4', im1, resolution=(224,224))
+    write_video(f'src/pref/preferences/human/scene{cur-5}_{cur}.mp4', im2, resolution=(224,224))
+    exit()
+# get_video()
 
 import os
 directory = 'src/pref/preferences/'
@@ -133,6 +178,8 @@ for filename in os.listdir(directory):
         k1, k2, pref = prefs_train.prefs[i]
         assert_equal(len(prefs_train.segments[k1]), 25)
         assert_equal(len(prefs_train.segments[k2]), 25)
+
+
         pairwise_traj.append((prefs_train.segments[k1], prefs_train.segments[k2], pref))
 pairwise_traj_dataset = PairwiseTrajDataset(pairwise_traj)
 
