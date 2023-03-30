@@ -174,6 +174,9 @@ but obs_shape = (112,112,7)
 * ValueError: loaded state dict contains a parameter group that doesn't match the size of optimizer's group
 -> pip uninstall stable-baselines3
 -> pip install stable-baselines3
+
+* SAC, PPO crasg at beginning
+=> reduce train batch size
 =======
 
 * L5wrapper is wrong
