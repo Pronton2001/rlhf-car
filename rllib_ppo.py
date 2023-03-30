@@ -22,7 +22,7 @@ import ray
 import pytz
 from ray import tune
 
-ray.init(num_cpus=12, ignore_reinit_error=True, log_to_driver=False)
+ray.init(num_cpus=10, ignore_reinit_error=True, log_to_driver=False)
 
 
 from l5kit.configs import load_config_data
@@ -62,20 +62,20 @@ import numpy as np
 import ray
 from ray import air, tune
 from ray.air import session
-from ray.air.integrations.wandb import setup_wandb
-from ray.air.integrations.wandb import WandbLoggerCallback
-os.environ['WANDB_NOTEBOOK_NAME'] = '/workspace/source/rllib_ppo.py'
-os.environ["WANDB_API_KEY"] = '083592c84134c040dcca598c644c348d32540a08'
+# from ray.air.integrations.wandb import setup_wandb
+# from ray.air.integrations.wandb import WandbLoggerCallback
+# os.environ['WANDB_NOTEBOOK_NAME'] = '/workspace/source/rllib_ppo.py'
+# os.environ["WANDB_API_KEY"] = '083592c84134c040dcca598c644c348d32540a08'
 
-import wandb
-wandb.init(project="l5kit2", reinit = True)
+# import wandb
+# wandb.init(project="l5kit2", reinit = True)
 
 #################### Train ####################
 import ray
 from ray import air, tune
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/workspace/datasets/ray_results/' + date
+ray_result_logdir = '/workspace/datasets/ray_results/debug' + date
 
 train_envs = 4
 lr = 3e-3
@@ -129,7 +129,7 @@ result_grid = tune.Tuner(
         checkpoint_config=air.CheckpointConfig(num_to_keep=2, 
                                                checkpoint_frequency = 100, 
                                                checkpoint_score_attribute = 'episode_reward_mean'),
-        callbacks=[WandbLoggerCallback(project="l5kit2", save_checkpoints=True),],
+        # callbacks=[WandbLoggerCallback(project="l5kit2", save_checkpoints=True),],
         ),
     param_space=config_param_space).fit()
     

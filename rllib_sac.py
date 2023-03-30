@@ -144,7 +144,8 @@ result_grid = tune.Tuner(
         checkpoint_config=air.CheckpointConfig(num_to_keep=2, checkpoint_frequency = 100, checkpoint_score_attribute = 'episode_reward_mean'),
         callbacks=[WandbLoggerCallback(
             project="l5kit2", 
-            save_checkpoints=False),],),
+            save_checkpoints=False),],
+    ),
         
     param_space=config_param_space).fit()
 #################### Retrain ####################
