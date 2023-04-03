@@ -107,7 +107,7 @@ config_param_space = {
     'target_network_update_freq': 1,
     'replay_buffer_config':{
         'type': 'MultiAgentPrioritizedReplayBuffer',
-        'capacity': int(1e4), #int(1e5)
+        'capacity': int(1e5), #int(1e5)
         "worker_side_prioritization": True,
     },
     'num_steps_sampled_before_learning_starts': 2048, # 8000,

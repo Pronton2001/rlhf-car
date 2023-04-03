@@ -1,6 +1,7 @@
 from l5kit.data import LocalDataManager
 from l5kit.data.map_api import MapAPI
 from l5kit.visualization.visualizer.zarr_utils import episode_out_to_visualizer_scene_gym_cle
+from l5kit.configs import load_config_data
 
 dmg = LocalDataManager(None)
 source_path = '/workspace/source/'
@@ -24,7 +25,8 @@ def rollout_episode(model, env, idx = 0):
         obs = env.reset()
         done = False
         while True:
-            action, _ = model.predict(obs, deterministic=True)
+            # action, _ = model.predict(obs, deterministic=True)
+            action = model.compute_single_action(obs, deterministic=True)
             obs, _, done, info = env.step(action)
             if done:
                 break
