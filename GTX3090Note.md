@@ -3,11 +3,14 @@ Private repo cloning: https://Pronton2001@github.com/Pronton2001/reponame
 ```bash
 cd /path/to/l5kit/l5kit
 pipenv sync --dev
-pip install -e git+https://github.com/DLR-RM/stable-baselines3@7e1db1aaaa0f486cceb79faf5a08a25c5fded670#egg=stable_baselines3 # torch==1.13.0
+pip install stable-baselines3==1.7
 pip install wandb
 pip install tensorflow-probability
 pip install ray[rllib]==2.2.0
 pip install tensorflow==2.11
+pip install torch==1.13
+pip install gym 0.21.0
+pip install numpy==1.22
 ```
 
 ## Use ssh tunneling:
