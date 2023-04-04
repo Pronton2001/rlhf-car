@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 from src.pref.model import RewardModelPredictor
 from torch import load
 import torch
-import logging
+# import logging
 from numpy.testing import assert_equal
 
-logging.basicConfig(filename='src/log/info.log', level=logging.DEBUG, filemode='w')
+# logging.basicConfig(filename='src/log/info.log', level=logging.DEBUG, filemode='w')
 
 class L5EnvWrapper(Wrapper):
     def __init__(self, env, raster_size = 112, n_channels = 7):
@@ -120,7 +120,7 @@ class L5EnvWrapperHFreward(Wrapper):# TODO - Code Unit test for this wrapper
 
     def reset(self) -> Dict[str, np.ndarray]:
         return self.env.reset()['image'].reshape(self.raster_size, self.raster_size, self.n_channels) # : For SAC,PPO ray rllib policy
-class L5EnvWrapperWithoutReshape(Wrapper): # use transpose instead of reshape
+class L5EnvWrapperTorch(Wrapper): # use transpose instead of reshape
     def __init__(self, env, raster_size = 112, n_channels = 7):
         super().__init__(env)
         self.env = env
@@ -129,7 +129,7 @@ class L5EnvWrapperWithoutReshape(Wrapper): # use transpose instead of reshape
         obs_shape = (self.raster_size, self.raster_size, self.n_channels)
         self.observation_space =spaces.Box(low=0, high=1, shape=obs_shape, dtype=np.float32)
         # self.action_space =gym.spaces.Box(low=0, high=1, shape=obs_shape, dtype=np.float32)
-        self.action_space = spaces.Box(low=-1, high=1, shape=(3, ))
+#         self.action_space = spaces.Box(low=-1, high=1, shape=(3, ))
 
     def step(self, action:  np.ndarray) -> GymStepOutput:
         output =  self.env.step(action)
@@ -140,6 +140,27 @@ class L5EnvWrapperWithoutReshape(Wrapper): # use transpose instead of reshape
 
     def reset(self) -> Dict[str, np.ndarray]:
         return self.env.reset()['image'].transpose(1,2,0) # C,W,H -> W, H, C (for SAC/PPO torch model)
+    
+class L5EnvWrapperTF(Wrapper): # use transpose instead of reshape
+    def __init__(self, env, raster_size = 112, n_channels = 7):
+        super().__init__(env)
+        self.env = env
+        self.n_channels = n_channels
+        self.raster_size = raster_size
+        obs_shape = (self.n_channels, self.raster_size, self.raster_size)
+        self.observation_space =spaces.Box(low=0, high=1, shape=obs_shape, dtype=np.float32)
+        # self.action_space =gym.spaces.Box(low=0, high=1, shape=obs_shape, dtype=np.float32)
+#         self.action_space = spaces.Box(low=-1, high=1, shape=(3, ))
+
+    def step(self, action:  np.ndarray) -> GymStepOutput:
+        output =  self.env.step(action)
+        onlyImageState = output.obs['image']#.transpose(1,2,0) # C,W,H -> W, H, C (for SAC/PPO torch model)
+        
+        assert onlyImageState.shape[0] < onlyImageState.shape[1], f'wrong shape: {onlyImageState.shape}'
+        return GymStepOutput(onlyImageState, output.reward, output.done, output.info)
+
+    def reset(self) -> Dict[str, np.ndarray]:
+        return self.env.reset()['image']#.transpose(1,2,0) # C,W,H -> W, H, C (for SAC/PPO torch model)
 
 if __name__ == '__main__':
     import os

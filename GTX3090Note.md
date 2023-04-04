@@ -199,6 +199,12 @@ Rayrllib:
 
 SAC rllib beat PPO stable-baselines3, which mean that SAC although use reshaped obs, it can still learn.
 
+* This cannot happen 
+```python
+    "post_fcnet_hiddens": [256],
+    "vf_share_layers": True,  
+```
+
 * ambigous in image shape
 At beginning, data['image'].shape = W,H,C
 In code: l5kit/l5kit/l5kit/dataset/ego.py
