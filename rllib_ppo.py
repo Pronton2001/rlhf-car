@@ -22,7 +22,7 @@ import ray
 import pytz
 from ray import tune
 
-ray.init(num_cpus=18, ignore_reinit_error=True, log_to_driver=False)
+ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9)
 
 
 from l5kit.configs import load_config_data
@@ -100,7 +100,7 @@ config_param_space = {
             # "conv_activation": "relu",
             "post_fcnet_hiddens": [256],
             "post_fcnet_activation": "relu",
-            "vf_share_layers": True,   
+            "vf_share_layers": False,   
     },
     
     '_disable_preprocessor_api': True,
@@ -108,14 +108,13 @@ config_param_space = {
      "restart_failed_sub_environments": True,
     "lr": lr,
     'seed': 42,
-    # "lr_schedule": [
-    #     [1e6, lr_start],
-    #     [2e6, lr_end],
-    # ],
+    "lr_schedule": [
+        [7e5, lr_start],
+        [2e6, lr_end],
+    ],
     'train_batch_size': 2048, # 8000 
-    'sgd_minibatch_size': 256, #2048
+    'sgd_minibatch_size': 512, #2048
     'num_sgd_iter': 10,#16,
-    'seed': 42,
     'batch_mode': 'truncate_episodes',
     # "rollout_fragment_length": 32,
     'gamma': 0.8,    
@@ -135,9 +134,9 @@ result_grid = tune.Tuner(
     
 
 #################### Retrain ####################
-# ray_result_logdir = '/workspace/datasets/ray_results/29-03-2023_13-22-52/'
+# ray_result_logdir = '/workspace/datasets/ray_results/01-04-2023_19-55-37_(PPO~-70)/PPO'
 
 # tuner = tune.Tuner.restore(
-#     path=ray_result_logdir + 'PPO',
+#     path=ray_result_logdir, resume_errored = True,
 # )
 # tuner.fit()

@@ -146,7 +146,6 @@ class L5EnvWrapperTF(Wrapper): # use transpose instead of reshape
         obs_shape = (self.n_channels, self.raster_size, self.raster_size)
         self.observation_space =spaces.Box(low=0, high=1, shape=obs_shape, dtype=np.float32)
         # self.action_space =gym.spaces.Box(low=0, high=1, shape=obs_shape, dtype=np.float32)
-        # self.action_space = spaces.Box(low=-1, high=1, shape=(3, ))
 
     def step(self, action:  np.ndarray) -> GymStepOutput:
         output =  self.env.step(action)

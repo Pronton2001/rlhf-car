@@ -3,9 +3,12 @@ import torch.nn as nn
 import torch
 from torch.nn import functional as F
 from l5kit.planning.vectorized.open_loop_model import VectorizedModel, CustomVectorizedModel
+import os
+import numpy as np
+os.environ['CUDA_VISIBLE_DEVICES']= '0'
 
 import logging
-logging.basicConfig(filename='/home/pronton/rl/rlhf-car/src/log/info.log', level=logging.DEBUG, filemode='w')
+logging.basicConfig(filename='/workspace/source/src/log/info.log', level=logging.DEBUG, filemode='w')
 
 class TorchGNCNN(TorchModelV2, nn.Module):
     """
@@ -283,29 +286,45 @@ class TorchAttentionModel3(TorchModelV2, nn.Module):
 
         d_model = 256
         self._critic_FF = MLP(d_model, d_model * 4, output_dim= 1, num_layers=1)
-        model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
+        model_path = "/workspace/source/src/model/OL_HS.pt"
+#         model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
         # self._critic_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
         self._actor_head.load_state_dict(torch.load(model_path).state_dict())
+
         # self._critic_head.load_state_dict()
         # self.outputs = nn.ModuleList()
         # for i in range(action_space.shape[0]):
         #     self.outputs.append(nn.Linear(num_outputs, 1)) # 6x
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        raise ValueError(self.device)
         
-
     def forward(self, input_dict, state, seq_lens):
         obs_transformed = input_dict['obs']
         # logging.debug('obs forward:'+ str(obs_transformed))
         logits = self._actor_head(obs_transformed)
         logging.debug('predict traj' + str(logits))
         STEP_TIME = 0.1
+# <<<<<<< HEAD
+#         pred_x = logits['positions'][:,0, 0].view(-1,1).to(self.device) * STEP_TIME# take the first action 
+#         pred_y = logits['positions'][:,0, 1].view(-1,1).to(self.device) * STEP_TIME# take the first action
+#         pred_yaw = logits['yaws'][:,0,:].view(-1,1).to(self.device) * STEP_TIME# take the first action
+        
+#         std = torch.ones_like(pred_x).to(self.device) *-10 # 32,
+# #         raise ValueError(self.device, pred_x.device, std.device)
+#         # assert ones.shape[1] == 1, f'{ones.shape[1]}'
+#         # output_logits_mean = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
+#         output_logits = torch.cat((pred_x,pred_y, pred_yaw, std, std, std), dim = -1).to(self.device)
+# =======
+        
         pred_x = logits['positions'][:,0, 0].view(-1,1) * STEP_TIME# take the first action 
         pred_y = logits['positions'][:,0, 1].view(-1,1) * STEP_TIME# take the first action
         pred_yaw = logits['yaws'][:,0,:].view(-1,1) * STEP_TIME# take the first action
+        raise ValueError(self.device, pred_x.device)
         ones = torch.ones_like(pred_x).to(self.device) # 32,
         # assert ones.shape[1] == 1, f'{ones.shape[1]}'
         # output_logits_mean = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
         output_logits = torch.cat((pred_x,pred_y, pred_yaw, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
+# >>>>>>> a67daa30820ac7621232e8d1a33832b30093f810
         # print('pretrained action', output_logits[:,:3])
         assert output_logits.shape[1] == 6, f'{output_logits.shape[1]}'
         # self.outputs = output_logits
@@ -344,8 +363,8 @@ if __name__ == '__main__':
     # # print('transformed', obs_transformed.shape)
     # # print(obs_transformed.shape)
     # model(input_dict=batch_data)
-    os.environ["L5KIT_DATA_FOLDER"] = "/media/pronton/linux_files/a100code/l5kit/l5kit_dataset"
-    env_config_path = '/home/pronton/rl/rlhf-car/src/configs/gym_vectorizer_config.yaml'
+    os.environ["L5KIT_DATA_FOLDER"] = "/workspace/datasets"
+    env_config_path = '/workspace/source/src/configs/gym_vectorizer_config.yaml'
     dmg = LocalDataManager(None)
     cfg = load_config_data(env_config_path)
     # rollout_sim_cfg = SimulationConfigGym()
@@ -365,7 +384,7 @@ if __name__ == '__main__':
     env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': False, 'sim_cfg': train_sim_cfg, 'rescale_action': False}
     tune.register_env("L5-CLE-V2", lambda config: L5Env2(**env_kwargs))
     l5_env2 = L5Env2(**env_kwargs)
-    ray.init(num_cpus=4, ignore_reinit_error=True, log_to_driver=False, local_mode=True)
+    ray.init(num_cpus=5, ignore_reinit_error=True, log_to_driver=False, local_mode=False)
     # algo = ppo.PPO(
     #         env="L5-CLE-V2",
     #         config={
@@ -399,7 +418,7 @@ if __name__ == '__main__':
     import datetime
     hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
     date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-    ray_result_logdir = '~/ray_results/debug' + date
+    ray_result_logdir = '/workspace/datasets/ray_results/debug' + date
 
     train_envs = 4
     lr = 3e-3
@@ -418,16 +437,16 @@ if __name__ == '__main__':
         disable_map=cfg["model_params"]["disable_map"],
         disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
     
-    model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
+    model_path = "/workspace/source/src/model/OL_HS.pt"
     pretrained_policy.load_state_dict(torch.load(model_path).state_dict())
     # pretrain_dist = PretrainedDistribution(pretrained_policy)
 
     config_param_space = {
         "env": "L5-CLE-V2",
         "framework": "torch",
-        "num_gpus": 0,
-        "num_workers": 2,
-        "num_envs_per_worker": 2,
+        "num_gpus": 1,
+        "num_workers": 3,
+        "num_envs_per_worker": 4,
         'disable_env_checking':False,
         # "postprocess_fn": my_postprocess_fn,
         "pretrained_policy": pretrained_policy,
@@ -446,8 +465,7 @@ if __name__ == '__main__':
                 # "free_log_std": True,
                 # "std_share_network": False,
                 },
-        
-        # 'custom_policy' : KLPPOPolicy,
+
         '_disable_preprocessor_api': True,
         "eager_tracing": True,
         "restart_failed_sub_environments": True,
@@ -457,14 +475,15 @@ if __name__ == '__main__':
         #     [1e6, lr_start],
         #     [2e6, lr_end],
         # ],
-        'train_batch_size': 4, # 8000 
-        'sgd_minibatch_size': 2, #2048
-        'num_sgd_iter': 1,#16,
+        'train_batch_size': 128, # 8000 
+        'sgd_minibatch_size': 32, #2048
+        'num_sgd_iter': 10,#16,
         'seed': 42,
         # 'batch_mode': 'truncate_episodes',
         # "rollout_fragment_length": 32,
         'gamma': 0.8,    
     }
+
 
     # result_grid = tune.Tuner(
     #     "PPO",
@@ -484,6 +503,7 @@ if __name__ == '__main__':
     # trainer = KLPPO(obs_space= l5_env2.observation_space,
     #                 action_space =l5_env2.action_space,
     #                 config=config_param_space)
+
     # CustomTrainer = PPO.with_updates(get_policy_class=lambda config:KLPPOPolicy)
     from src.customModel.customPPOTrainer import KLPPO
     # class KLPPO(PPO):
@@ -495,6 +515,7 @@ if __name__ == '__main__':
     trainer = KLPPO(config=config_param_space)
     from ray.tune.logger import pretty_print
     for i in range(10000):
+        print('alo')
         result = trainer.train()
         print(pretty_print(result))
 
