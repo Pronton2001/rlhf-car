@@ -296,7 +296,6 @@ class TorchAttentionModel3(TorchModelV2, nn.Module):
         # for i in range(action_space.shape[0]):
         #     self.outputs.append(nn.Linear(num_outputs, 1)) # 6x
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        raise ValueError(self.device)
         
     def forward(self, input_dict, state, seq_lens):
         obs_transformed = input_dict['obs']
@@ -319,8 +318,7 @@ class TorchAttentionModel3(TorchModelV2, nn.Module):
         pred_x = logits['positions'][:,0, 0].view(-1,1) * STEP_TIME# take the first action 
         pred_y = logits['positions'][:,0, 1].view(-1,1) * STEP_TIME# take the first action
         pred_yaw = logits['yaws'][:,0,:].view(-1,1) * STEP_TIME# take the first action
-        raise ValueError(self.device, pred_x.device)
-        ones = torch.ones_like(pred_x).to(self.device) # 32,
+        ones = torch.ones_like(pred_x) # 32,
         # assert ones.shape[1] == 1, f'{ones.shape[1]}'
         # output_logits_mean = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
         output_logits = torch.cat((pred_x,pred_y, pred_yaw, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
