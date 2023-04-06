@@ -4,8 +4,8 @@ import torch
 from torch.nn import functional as F
 from l5kit.planning.vectorized.open_loop_model import VectorizedModel, CustomVectorizedModel
 import os
-
-os.environ['CUDA_VISIBLE_DEVICES']= '1'
+import numpy as np
+os.environ['CUDA_VISIBLE_DEVICES']= '0'
 
 import logging
 logging.basicConfig(filename='/workspace/source/src/log/info.log', level=logging.DEBUG, filemode='w')
@@ -254,9 +254,10 @@ class TorchAttentionModel3(TorchModelV2, nn.Module):
         # print('action space:', action_space)
         # print('num output:', num_outputs)
         weights_scaling = [1.0, 1.0, 1.0]
-        # self._std_x = 0.005
-        # self._std_y = 0.005
-        # self._std_yaw = 0.005
+        # self.outputs = None
+        self.log_std_x = np.log(5.373758673667908/10)
+        self.log_std_y = np.log(0.08619927801191807/10)
+        self.log_std_yaw = np.log(0.04215553868561983 / 10)
 
         self._num_predicted_frames = cfg["model_params"]["future_num_frames"]
         # self._num_predicted_frames = 1
@@ -289,13 +290,13 @@ class TorchAttentionModel3(TorchModelV2, nn.Module):
 #         model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
         # self._critic_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
         self._actor_head.load_state_dict(torch.load(model_path).state_dict())
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # self._critic_head.load_state_dict()
         # self.outputs = nn.ModuleList()
         # for i in range(action_space.shape[0]):
         #     self.outputs.append(nn.Linear(num_outputs, 1)) # 6x
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        raise ValueError(self.device)
         
     def forward(self, input_dict, state, seq_lens):
         obs_transformed = input_dict['obs']
@@ -303,17 +304,30 @@ class TorchAttentionModel3(TorchModelV2, nn.Module):
         logits = self._actor_head(obs_transformed)
         logging.debug('predict traj' + str(logits))
         STEP_TIME = 0.1
-        pred_x = logits['positions'][:,0, 0].view(-1,1).to(self.device) * STEP_TIME# take the first action 
-        pred_y = logits['positions'][:,0, 1].view(-1,1).to(self.device) * STEP_TIME# take the first action
-        pred_yaw = logits['yaws'][:,0,:].view(-1,1).to(self.device) * STEP_TIME# take the first action
+# <<<<<<< HEAD
+#         pred_x = logits['positions'][:,0, 0].view(-1,1).to(self.device) * STEP_TIME# take the first action 
+#         pred_y = logits['positions'][:,0, 1].view(-1,1).to(self.device) * STEP_TIME# take the first action
+#         pred_yaw = logits['yaws'][:,0,:].view(-1,1).to(self.device) * STEP_TIME# take the first action
         
-        std = torch.ones_like(pred_x).to(self.device) *-10 # 32,
-#         raise ValueError(self.device, pred_x.device, std.device)
+#         std = torch.ones_like(pred_x).to(self.device) *-10 # 32,
+# #         raise ValueError(self.device, pred_x.device, std.device)
+#         # assert ones.shape[1] == 1, f'{ones.shape[1]}'
+#         # output_logits_mean = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
+#         output_logits = torch.cat((pred_x,pred_y, pred_yaw, std, std, std), dim = -1).to(self.device)
+# =======
+        
+        pred_x = logits['positions'][:,0, 0].view(-1,1) * STEP_TIME# take the first action 
+        pred_y = logits['positions'][:,0, 1].view(-1,1) * STEP_TIME# take the first action
+        pred_yaw = logits['yaws'][:,0,:].view(-1,1) * STEP_TIME# take the first action
+        raise ValueError(self.device, pred_x.device)
+        ones = torch.ones_like(pred_x).to(self.device) # 32,
         # assert ones.shape[1] == 1, f'{ones.shape[1]}'
         # output_logits_mean = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
-        output_logits = torch.cat((pred_x,pred_y, pred_yaw, std, std, std), dim = -1).to(self.device)
+        output_logits = torch.cat((pred_x,pred_y, pred_yaw, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
+# >>>>>>> a67daa30820ac7621232e8d1a33832b30093f810
         # print('pretrained action', output_logits[:,:3])
         assert output_logits.shape[1] == 6, f'{output_logits.shape[1]}'
+        # self.outputs = output_logits
 
         # dist = torch.distributions.Normal(output_logits_mean, torch.ones_like(output_logits_mean)*0.0005)
         # print('-----------------------------sample', dist.rsample())
@@ -370,7 +384,7 @@ if __name__ == '__main__':
     env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': False, 'sim_cfg': train_sim_cfg, 'rescale_action': False}
     tune.register_env("L5-CLE-V2", lambda config: L5Env2(**env_kwargs))
     l5_env2 = L5Env2(**env_kwargs)
-    ray.init(num_cpus=5, ignore_reinit_error=True, log_to_driver=False, local_mode=True)
+    ray.init(num_cpus=5, ignore_reinit_error=True, log_to_driver=False, local_mode=False)
     # algo = ppo.PPO(
     #         env="L5-CLE-V2",
     #         config={
@@ -411,84 +425,7 @@ if __name__ == '__main__':
     from src.customModel.utils import kl_divergence, PretrainedDistribution
     from ray.rllib.evaluation.postprocessing import compute_advantages
 
-    from ray.rllib.policy.sample_batch import SampleBatch
-    from ray.rllib.models.torch.torch_distributions import TorchDiagGaussian
-    from ray.rllib.models.torch.torch_action_dist import TorchDiagGaussian as TorchActionDiagGaussian
-    from ray.rllib.algorithms.ppo.ppo_torch_policy import PPOTorchPolicy
 
-    class KLPPO(PPOTorchPolicy):
-        def __init__(self, obs_space, action_space, config):
-            # config["model"].get("max_seq_len", 20)
-            config["model"]["max_seq_len"] = 20
-            super().__init__(obs_space, action_space, config)
-            # Load your pretrained model here and convert it to a distribution
-            # self.pretrained_dist = ...
-        
-        # @override(PPOTorchPolicy)
-        #TODO: Fix many bugssssss
-        def postprocess_trajectory(
-                self, sample_batch, other_agent_batches=None, episode=None):
-            # Compute the usual GAE values using the base postprocess_trajectory
-            # function
-            
-            # Get the actions from the sample batch
-            actions = sample_batch[SampleBatch.ACTIONS]
-            pretrained_policy = self.config['pretrained_policy']
-
-            # Convert observations to tensor
-            logging.debug('obs', sample_batch['obs'])
-            print(sample_batch['obs'])
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            # obs = torch.as_tensor(sample_batch['obs']).to(device)
-
-            # Compute the KL divergence reward
-            # ppo_action_dist = self.dist_class(self.model.outputs, self.model)
-            # ppo_action_dist = self.action_dist(sample_batch['obs'])
-            # ppo_logits, state = self.model(sample_batch)
-            # ppo_action_dist = self.dist_class(ppo_logits, self.model)
-            ppo_action_dist = TorchActionDiagGaussian(
-            sample_batch[SampleBatch.ACTION_DIST_INPUTS], self.model)
-
-            # pretrained_action_dist = pretrained_policy.dist_class(pretrained_policy.model.outputs, pretrained_policy.model)
-
-            # TODO: cal distribution of pretrain model 's action
-            # logging.debug('ppo traj' + str(self.model.outputs))
-            obs = {}
-            for k,v in sample_batch[SampleBatch.CUR_OBS].items():
-                obs[k] = torch.as_tensor(v).to(self.device)
-            logits = pretrained_policy(obs)
-            logging.debug('pretrained traj' + str(logits))
-            STEP_TIME = 0.1
-            pred_x = logits['positions'][:,0, 0].view(-1,1) * STEP_TIME# take the first action 
-            pred_y = logits['positions'][:,0, 1].view(-1,1) * STEP_TIME# take the first action
-            pred_yaw = logits['yaws'][:,0,:].view(-1,1) * STEP_TIME# take the first action
-            log_std = torch.ones_like(pred_x).to(device) *0.0005 # 32,
-            output_logits = torch.cat((pred_x,pred_y, pred_yaw), dim = -1)
-            
-            # scale = log_std.exp()
-            print('logits',output_logits, ', log_std',log_std)
-            pretrained_action_dist = TorchDiagGaussian(loc=output_logits, scale=log_std)
-            
-            # Create a distribution from the pretrained model
-            pretrained_dist = pretrained_action_dist.sample()
-            
-            # Calculate the KL divergence between the PPO and pretrained distributions
-            # kl_div = torch.distributions.kl_divergence(
-            #     self.action_dist, pretrained_dist).mean()
-            kl_div = ppo_action_dist.kl(pretrained_action_dist)
-            # kl_div = pretrained_action_dist.kl(ppo_action_dist)
-            # kl_div = kl_divergence(pretrained_dist)
-            
-            # Add the KL penalty to the rewards
-            # gae_data[Postprocessing.] -= kl_div.item()
-            logging.debug(f'reward shape{sample_batch[SampleBatch.REWARDS].shape}')
-            logging.debug(f'kl shape{kl_div.shape}')
-            sample_batch[SampleBatch.REWARDS] -= kl_div.detach().numpy()
-            
-            gae_data = super().postprocess_trajectory(
-                sample_batch, other_agent_batches, episode)
-            
-            return gae_data
     pretrained_policy = VectorizedModel(
         history_num_frames_ego=cfg["model_params"]["history_num_frames_ego"],
         history_num_frames_agents=cfg["model_params"]["history_num_frames_agents"],
@@ -528,8 +465,7 @@ if __name__ == '__main__':
                 # "free_log_std": True,
                 # "std_share_network": False,
                 },
-        
-        'custom_policy' : KLPPO,
+
         '_disable_preprocessor_api': True,
         "eager_tracing": True,
         "restart_failed_sub_environments": True,
@@ -548,23 +484,35 @@ if __name__ == '__main__':
         'gamma': 0.8,    
     }
 
-    from ray.rllib.agents.ppo import PPOTrainer
+
+    # result_grid = tune.Tuner(
+    #     "PPO",
+    #     run_config=air.RunConfig(
+    #         stop={"episode_reward_mean": 0, 'timesteps_total': int(6e6)},
+    #         local_dir=ray_result_logdir,
+    #         checkpoint_config=air.CheckpointConfig(num_to_keep=2, 
+    #                                             checkpoint_frequency = 10, 
+    #                                             checkpoint_score_attribute = 'episode_reward_mean'),
+    #         # callbacks=[WandbLoggerCallback(project="l5kit2", save_code = True, save_checkpoints = False),],
+    #         ),
+    #     param_space=config_param_space).fit()
+    # from ray.rllib.agents.ppo import PPOTrainer
+    # from ray.rllib.agents.ppo.ppo import PPOTrainer
+    from ray.rllib.algorithms.ppo import PPO
     
     # trainer = KLPPO(obs_space= l5_env2.observation_space,
     #                 action_space =l5_env2.action_space,
     #                 config=config_param_space)
-    trainer = PPOTrainer(config=config_param_space)
-    result_grid = tune.Tuner(
-        "PPO",
-        run_config=air.RunConfig(
-            stop={"episode_reward_mean": 0, 'timesteps_total': int(6e6)},
-            local_dir=ray_result_logdir,
-            checkpoint_config=air.CheckpointConfig(num_to_keep=2, 
-                                                checkpoint_frequency = 10, 
-                                                checkpoint_score_attribute = 'episode_reward_mean'),
-            # callbacks=[WandbLoggerCallback(project="l5kit2", save_code = True, save_checkpoints = False),],
-            ),
-        param_space=config_param_space).fit()
+
+    # CustomTrainer = PPO.with_updates(get_policy_class=lambda config:KLPPOPolicy)
+    from src.customModel.customPPOTrainer import KLPPO
+    # class KLPPO(PPO):
+    #     def get_default_policy_class(
+    #         cls, config
+    #     ):
+    #         return KLPPOTorchPolicy(l5_env2.observation_space, l5_env2.action_space, config_param_space)
+
+    trainer = KLPPO(config=config_param_space)
     from ray.tune.logger import pretty_print
     for i in range(10000):
         print('alo')

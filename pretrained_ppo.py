@@ -23,6 +23,9 @@ import numpy as np
 import ray
 import pytz
 from ray import tune
+import torch
+from l5kit.planning.vectorized.open_loop_model import VectorizedModel, CustomVectorizedModel
+
 
 ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9)
 
@@ -144,13 +147,26 @@ import datetime
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
 ray_result_logdir = '/workspace/datasets/ray_results/debug' + date
-
+from src.customModel.customPPOTrainer import KLPPO
 train_envs = 4
 lr = 3e-3
 # lr_start = 3e-4
 # lr_end = 3e-5
 # lr_time = int(4e6)
-
+pretrained_policy = VectorizedModel(
+        history_num_frames_ego=cfg["model_params"]["history_num_frames_ego"],
+        history_num_frames_agents=cfg["model_params"]["history_num_frames_agents"],
+        num_targets=3 * 12, # N (X,Y,Yaw) 72
+        weights_scaling=[1.0, 1.0, 1.0], # 6
+        criterion=nn.L1Loss(reduction="none"),
+        global_head_dropout=cfg["model_params"]["global_head_dropout"],
+        disable_other_agents=cfg["model_params"]["disable_other_agents"],
+        disable_map=cfg["model_params"]["disable_map"],
+        disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
+    
+model_path = "/workspace/source/src/model/OL_HS.pt"
+pretrained_policy.load_state_dict(torch.load(model_path).state_dict())
+    # pretrain_dist = PretrainedDistribution(pretrained_policy)
 config_param_space = {
     "env": "L5-CLE-V2",
     "framework": "torch",
@@ -163,7 +179,7 @@ config_param_space = {
             # Extra kwargs to be passed to your model's c'tor.
             "custom_model_config": {'cfg':cfg},
             },
-
+    "pretrained_policy": pretrained_policy,
     '_disable_preprocessor_api': True,
     "eager_tracing": True,
     "restart_failed_sub_environments": True,
@@ -183,7 +199,7 @@ config_param_space = {
 }
 
 result_grid = tune.Tuner(
-    "PPO",
+    KLPPO,
     run_config=air.RunConfig(
         stop={"episode_reward_mean": 0, 'timesteps_total': int(6e6)},
         local_dir=ray_result_logdir,
@@ -194,6 +210,13 @@ result_grid = tune.Tuner(
         ),
     param_space=config_param_space).fit()
 
+
+trainer = KLPPO(config=config_param_space)
+from ray.tune.logger import pretty_print
+for i in range(10000):
+    print('alo')
+    result = trainer.train()
+    print(pretty_print(result))
 
 #################### Retrain ####################
 # ray_result_logdir = '/workspace/datasets/ray_results/01-04-2023_19-55-37_(PPO~-70)/PPO'
