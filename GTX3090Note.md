@@ -3,11 +3,14 @@ Private repo cloning: https://Pronton2001@github.com/Pronton2001/reponame
 ```bash
 cd /path/to/l5kit/l5kit
 pipenv sync --dev
-pip install -e git+https://github.com/DLR-RM/stable-baselines3@7e1db1aaaa0f486cceb79faf5a08a25c5fded670#egg=stable_baselines3 # torch==1.13.0
+pip install stable-baselines3==1.7
 pip install wandb
 pip install tensorflow-probability
 pip install ray[rllib]==2.2.0
 pip install tensorflow==2.11
+pip install torch==1.13
+pip install gym 0.21.0
+pip install numpy==1.22
 ```
 
 ## Use ssh tunneling:
@@ -158,7 +161,6 @@ In TorchGNCNN: (only PPO)
     obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # 32 x 7 x 112 x 112 [B, size, size, channels]
     => 32x 7 x 112 x 112 |=> Neural Net |=> action 
         => self._num_objects = obs_space.shape[2] # num_of_channels of input, channels x size x size => 112 (quite wrong) => PPO fail to work since it can only see (7x112) pixels
-<<<<<<< HEAD
            
 
 * AssertionError: torch.Size([32, 112, 112, 7]) != (_ ,112,112,7),  obs_transformed: torch.Size([32, 7, 112, 112])
@@ -177,7 +179,6 @@ but obs_shape = (112,112,7)
 
 * SAC, PPO crasg at beginning
 => reduce train batch size
-=======
 
 * L5wrapper is wrong
 -> Use reshape -> not change order of tensor but change shape
@@ -224,9 +225,55 @@ Our L5EnvWrapperWithoutReshape: convert C, W, H from data_batch and convert to W
         return self.env.reset()['image'].transpose(1,2,0)
 ```
 
+* TorchDistributionWrapper has no attribute 'dist'
+-> replace with TorchDiagGaussian(TorchDistributionWrapper)
+```python
+class TorchDiagGaussian(TorchDistributionWrapper):
+    """Wrapper class for PyTorch Normal distribution."""
+
+    @override(ActionDistribution)
+    def __init__(
+        self,
+        inputs: List[TensorType],
+        model: TorchModelV2,
+        *,
+        action_space: Optional[gym.spaces.Space] = None
+    ):
+        super().__init__(inputs, model)
+        mean, log_std = torch.chunk(self.inputs, 2, dim=1)
+        self.log_std = log_std
+        self.dist = torch.distributions.normal.Normal(mean, torch.exp(log_std))
+        # Remember to squeeze action samples in case action space is Box(shape)
+        self.zero_action_dim = action_space and action_space.shape == ()
+
+```
+
+* TorchDiagGaussian(TorchDistribution) has attribute 'dist'
+-> add self.dist
+```python
+@DeveloperAPI
+class TorchDistribution(Distribution, abc.ABC):
+    """Wrapper class for torch.distributions."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self._dist = self._get_torch_distribution(*args, **kwargs)
+        self.dist = self._dist # TRI HUYNH
+
+    @abc.abstractmethod
+    def _get_torch_distribution(
+        self, *args, **kwargs
+    ) -> torch.distributions.Distribution:
+        """Returns the torch.distributions.Distribution object to use."""
+
+    @override(Distribution)
+```
+*   self.scene_index = self.np_random.randint(0, self.max_scene_id)
+AttributeError: 'numpy.random._generator.Generator' object has no attribute 'randint'
+-> change randint -> integers
+
 # Scenes 
 SAC_RLlib: 
 + at scene 57 turn left although the GT turn right.
 + 82: go straight while GT turn left
 + 89: collide
->>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1

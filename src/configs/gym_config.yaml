@@ -59,8 +59,8 @@ val_data_loader:
 ###################
 ## Gym params
 gym_params:
-  max_scene_id: 16265
-  max_val_scene_id: 100
+  max_scene_id: 134622
+  max_val_scene_id: 16220
   randomize_start_frame: True
   overfit: False
-  overfit_id: 0
+  # overfit_id: 0

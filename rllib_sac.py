@@ -107,7 +107,7 @@ config_param_space = {
     'target_network_update_freq': 1,
     'replay_buffer_config':{
         'type': 'MultiAgentPrioritizedReplayBuffer',
-        'capacity': int(1e4), #int(1e5)
+        'capacity': int(1e5), #int(1e5)
         "worker_side_prioritization": True,
     },
     'num_steps_sampled_before_learning_starts': 2048, # 8000,
@@ -144,7 +144,8 @@ result_grid = tune.Tuner(
         checkpoint_config=air.CheckpointConfig(num_to_keep=2, checkpoint_frequency = 100, checkpoint_score_attribute = 'episode_reward_mean'),
         callbacks=[WandbLoggerCallback(
             project="l5kit2", 
-            save_checkpoints=False),],),
+            save_checkpoints=False),],
+    ),
         
     param_space=config_param_space).fit()
 #################### Retrain ####################

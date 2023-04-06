@@ -1,6 +1,7 @@
 from l5kit.data import LocalDataManager
 from l5kit.data.map_api import MapAPI
 from l5kit.visualization.visualizer.zarr_utils import episode_out_to_visualizer_scene_gym_cle
+from l5kit.configs import load_config_data
 
 dmg = LocalDataManager(None)
 source_path = '/workspace/source/'
@@ -8,7 +9,7 @@ env_config_path = source_path + 'src/configs/gym_config.yaml'
 cfg = load_config_data(env_config_path)
 mapAPI = MapAPI.from_cfg(dmg, cfg)
 
-def rollout_episode(model, env, idx = 0):
+def rollout_episode(model, env, idx = 0, num_simulation_steps = None):
         """Rollout a particular scene index and return the simulation output.
 
         :param model: the RL policy
@@ -24,8 +25,11 @@ def rollout_episode(model, env, idx = 0):
         obs = env.reset()
         done = False
         while True:
-            action, _ = model.predict(obs, deterministic=True)
+            # action, _ = model.predict(obs, deterministic=True)
+            action = model.compute_single_action(obs, deterministic=True)
             obs, _, done, info = env.step(action)
+            if num_simulation_steps and idx >= num_simulation_steps:
+                done = True
             if done:
                 break
 
@@ -33,13 +37,11 @@ def rollout_episode(model, env, idx = 0):
         sim_out = info["sim_outs"][0]
         return sim_out
 
-def unroll(model, rollout_env,num):
-    # Rollout one episode
-    # sim_out = rollout_episode(model, rollout_env)
-    # Rollout 5 episodes
+def unroll(model, rollout_env, num_scenes_to_unroll, num_simulation_steps, num_scenes_total):
+    scenes_to_unroll = list(range(0, num_scenes_total, num_scenes_total//num_scenes_to_unroll))
     sim_outs =[]
-    for i in range(num):
-        sim_outs.append(rollout_episode(model, rollout_env, i))
+    for i in range(scenes_to_unroll):
+        sim_outs.append(rollout_episode(model, rollout_env, i, num_simulation_steps))
     return sim_outs
 
 def visualize_outputs(sim_outs):
