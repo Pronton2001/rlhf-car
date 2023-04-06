@@ -28,7 +28,6 @@ class KLPPOTorchPolicy(
     def __init__(self, observation_space, action_space, config):
         self.kl_div_weight = 0.1
         config = dict(ray.rllib.algorithms.ppo.ppo.PPOConfig().to_dict(), **config)
-        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # TODO: Move into Policy API, if needed at all here. Why not move this into
         #  `PPOConfig`?.
         validate_config(config)
@@ -79,28 +78,32 @@ class KLPPOTorchPolicy(
 
             # TODO: cal distribution of pretrain model 's action
             # logging.debug('ppo traj' + str(self.model.outputs))
-            obs = {}
-            for k,v in sample_batch[SampleBatch.CUR_OBS].items():
-                obs[k] = torch.as_tensor(v).to(self.device)
-            ppo_logits, _ = self.model.forward({'obs':obs},None,None)
-            print(f'ppo logits: {ppo_logits}')
-            assert ppo_logits.shape[1] == 6, f'{ppo_logits.shape} != torch.Size([x,6])'
-            ppo_action_dist = self.dist_class(ppo_logits, self.model)
+            # obs = {}
+            # for k,v in sample_batch[SampleBatch.CUR_OBS].items():
+            #     obs[k] = torch.as_tensor(v).to('cpu')
+            obs = {k: torch.as_tensor(v).to('cpu') for k, v in sample_batch[SampleBatch.CUR_OBS].items()}
             logits = pretrained_policy(obs)
             STEP_TIME = 0.1
-            pred_x = logits['positions'][:,0, 0].view(-1,1).to(self.device) * STEP_TIME# take the first action 
-            pred_y = logits['positions'][:,0, 1].view(-1,1).to(self.device) * STEP_TIME# take the first action
-            pred_yaw = logits['yaws'][:,0,:].view(-1,1).to(self.device) * STEP_TIME# take the first action
-            ones = torch.ones_like(pred_x).to(self.device)  # 32,
+            pred_x = logits['positions'][:,0, 0].view(-1,1) * STEP_TIME# take the first action 
+            pred_y = logits['positions'][:,0, 1].view(-1,1) * STEP_TIME# take the first action
+            pred_yaw = logits['yaws'][:,0,:].view(-1,1)* STEP_TIME# take the first action
+            ones = torch.ones_like(pred_x) 
 
             lx, ly, lyaw= self.model.log_std_x, self.model.log_std_y, self.model.log_std_yaw
-            output_logits = torch.cat((pred_x,pred_y, pred_yaw), dim = -1).to(self.device)
-            output_logits_std = torch.cat((ones*lx, ones * ly, ones * lyaw), dim = -1).to(self.device)
+            output_logits = torch.cat((pred_x,pred_y, pred_yaw), dim = -1)
+            output_logits_std = torch.cat((ones*lx, ones * ly, ones * lyaw), dim = -1)
             
             # scale = log_std.exp()
             print(f'pretrain logits: {output_logits}, log_std: {output_logits_std}')
             print('----------------')
             pretrained_action_dist = TorchDiagGaussian(loc=output_logits, scale=torch.exp(output_logits_std))
+
+            # ppo_logits, _ = self.model.forward({'obs': obs} ,None,None)
+            # print(f'ppo logits: {ppo_logits}')
+            # # ppo_logits = ppo_logits.to(self.device)
+            # assert ppo_logits.shape[1] == 6, f'{ppo_logits.shape} != torch.Size([x,6])'
+            ppo_action_dist = self.dist_class(torch.as_tensor(sample_batch[SampleBatch.ACTION_DIST_INPUTS]).to('cpu'), self.model)
+            
             
             # Create a distribution from the pretrained model
             # pretrained_dist = pretrained_action_dist.sample()
