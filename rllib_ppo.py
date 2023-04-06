@@ -1,6 +1,6 @@
 import os
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
-os.environ['CUDA_VISIBLE_DEVICES']= '1'
+os.environ['CUDA_VISIBLE_DEVICES']= '0'
 # os.environ["TUNE_RESULT_DIR"] =  '/DATA/l5kit/rllib_tb_logs'
 import gym
 from l5kit.configs import load_config_data
@@ -79,15 +79,15 @@ ray_result_logdir = '/workspace/datasets/ray_results/debug' + date
 
 train_envs = 4
 lr = 3e-3
-lr_start = 3e-4
-lr_end = 3e-5
-lr_time = int(4e6)
+# lr_start = 3e-4
+# lr_end = 3e-5
+# lr_time = int(4e6)
 
 config_param_space = {
     "env": "L5-CLE-V1",
     "framework": "torch",
     "num_gpus": 1,
-    "num_workers": 8,
+    "num_workers": 16,
     "num_envs_per_worker": train_envs,
     # "model": {
     #     "custom_model": "GN_CNN_torch_model",
@@ -126,9 +126,9 @@ result_grid = tune.Tuner(
         stop={"episode_reward_mean": 0, 'timesteps_total': int(6e6)},
         local_dir=ray_result_logdir,
         checkpoint_config=air.CheckpointConfig(num_to_keep=2, 
-                                               checkpoint_frequency = 100, 
+                                               checkpoint_frequency = 10, 
                                                checkpoint_score_attribute = 'episode_reward_mean'),
-#         callbacks=[WandbLoggerCallback(project="l5kit2", save_checkpoints=True),],
+        # callbacks=[WandbLoggerCallback(project="l5kit2", save_code = True, save_checkpoints = False),],
         ),
     param_space=config_param_space).fit()
     

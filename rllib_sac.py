@@ -72,6 +72,7 @@ import wandb
 wandb.init(project="l5kit2", reinit = True)
 
 #################### Train ####################
+<<<<<<< HEAD
 # import ray
 # from ray import air, tune
 # train_envs = 4
@@ -109,6 +110,52 @@ wandb.init(project="l5kit2", reinit = True)
 #         'type': 'MultiAgentPrioritizedReplayBuffer',
 #         'capacity': int(1e5), #int(1e5)
 #         "worker_side_prioritization": True,
+=======
+import ray
+from ray import air, tune
+train_envs = 4
+
+hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
+date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
+ray_result_logdir = '/workspace/datasets/ray_results/' + date
+
+lr = 3e-3
+lr_start = 3e-4
+lr_end = 3e-5
+config_param_space = {
+    "env": "L5-CLE-V1",
+    "framework": "torch",
+    "num_gpus": 1,
+    "num_workers": 8, # 63
+    "num_envs_per_worker": train_envs,
+    'q_model_config' : {
+            # "dim": 112,
+            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+            # "conv_activation": "relu",
+            "post_fcnet_hiddens": [256],
+            "post_fcnet_activation": "relu",
+        },
+    'policy_model_config' : {
+            # "dim": 112,
+            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+            # "conv_activation": "relu",
+            "post_fcnet_hiddens": [256],
+            "post_fcnet_activation": "relu",
+        },
+    'tau': 0.005,
+    'target_network_update_freq': 1,
+    'replay_buffer_config':{
+        'type': 'MultiAgentPrioritizedReplayBuffer',
+        'capacity': int(1e5), #int(1e5)
+        "worker_side_prioritization": True,
+    },
+    'num_steps_sampled_before_learning_starts': 2048, # 8000,
+    
+    'target_entropy': 'auto',
+#     "model": {
+#         "custom_model": "GN_CNN_torch_model",
+#         "custom_model_config": {'feature_dim':128},
+>>>>>>> 13ab8471b664627e8d12c0cf449bacb81203b882
 #     },
 #     'store_buffer_in_checkpoints': True,
 #     'num_steps_sampled_before_learning_starts': 1024, # 8000,
@@ -122,6 +169,7 @@ wandb.init(project="l5kit2", reinit = True)
 #      "eager_tracing": True,
 #      "restart_failed_sub_environments": True,
  
+<<<<<<< HEAD
 #     # 'train_batch_size': 4000,
 #     # 'sgd_minibatch_size': 256,
 #     # 'num_sgd_iter': 16,
@@ -145,6 +193,33 @@ wandb.init(project="l5kit2", reinit = True)
 #         checkpoint_config=air.CheckpointConfig(num_to_keep=2, checkpoint_frequency = 100, checkpoint_score_attribute = 'episode_reward_mean'),
 #         callbacks=[WandbLoggerCallback(project="l5kit2", save_checkpoints=False),],
 #     ),
+=======
+    # 'train_batch_size': 4000,
+    # 'sgd_minibatch_size': 256,
+    # 'num_sgd_iter': 16,
+    # 'store_buffer_in_checkpoints' : False,
+    'seed': 42,
+    'batch_mode': 'truncate_episodes',
+    "rollout_fragment_length": 1,
+    'train_batch_size': 256, # 2048
+    'training_intensity' : 32, # (4x 'natural' value = 8) 'natural value = train_batch_size / (rollout_fragment_length x num_workers x num_envs_per_worker) = 256 / 1x 8 x 4 = 8
+    'gamma': 0.8,
+    'twin_q' : True,
+    "lr": 3e-4,
+    "min_sample_timesteps_per_iteration": 2048, # 8000
+}
+
+result_grid = tune.Tuner(
+    "SAC",
+    run_config=air.RunConfig(
+        stop={"episode_reward_mean": 0, 'timesteps_total': int(4e6)},
+        local_dir=ray_result_logdir,
+        checkpoint_config=air.CheckpointConfig(num_to_keep=2, checkpoint_frequency = 100, checkpoint_score_attribute = 'episode_reward_mean'),
+        callbacks=[WandbLoggerCallback(
+            project="l5kit2", 
+            save_checkpoints=False),],
+    ),
+>>>>>>> 13ab8471b664627e8d12c0cf449bacb81203b882
         
 #     param_space=config_param_space).fit()
 #################### Retrain ####################
