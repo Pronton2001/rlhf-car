@@ -143,7 +143,7 @@ import pytz
 import datetime
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '~/ray_results/debug' + date
+ray_result_logdir = '/workspace/datasets/ray_results/debug' + date
 
 train_envs = 4
 lr = 3e-3
