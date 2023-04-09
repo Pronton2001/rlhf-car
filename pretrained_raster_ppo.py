@@ -2,7 +2,7 @@ import time
 start = time.time()
 import os
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
-# os.environ['CUDA_VISIBLE_DEVICES']= '0'
+os.environ['CUDA_VISIBLE_DEVICES']= '0'
 # os.environ["TUNE_RESULT_DIR"] =  '/DATA/l5kit/rllib_tb_logs'
 import gym
 from l5kit.configs import load_config_data
@@ -110,12 +110,12 @@ model_path = "/workspace/source/src/model/planning_model_20201208.pt"
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 pretrained_policy.load_state_dict(torch.load(model_path).state_dict())
-pretrained_policy.to('cpu')
+# pretrained_policy.to(device)
 
 config_param_space = {
     "env": "L5-CLE-V1",
     "framework": "torch",
-    "num_gpus": 0,
+    "num_gpus": 1,
     "num_workers": 4,
     "num_envs_per_worker": train_envs, #8 * 32
     'disable_env_checking':True,
