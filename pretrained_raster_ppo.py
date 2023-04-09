@@ -30,7 +30,7 @@ from l5kit.planning.rasterized.model import RasterizedPlanningModelFeature
 
 
 # torch.cuda.set_device('cuda:0')
-ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode = True)
+ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9)
 
 
 from l5kit.configs import load_config_data
@@ -92,12 +92,12 @@ import pytz
 import datetime
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/workspace/datasets/ray_results/debug' + date
+ray_result_logdir = '/workspace/datasets/ray_results/debugPPORasterPretrain' + date
 from src.customModel.customPPOTrainer import KLPPO
 train_envs = 4
-lr = 3e-3
-lr_start = 3e-4
-lr_end = 3e-5
+# lr = 3e-3
+lr_start = 3e-5
+lr_end = 3e-6
 # lr_time = int(4e6)
 pretrained_policy = RasterizedPlanningModelFeature(
                 model_arch="resnet50",
@@ -122,15 +122,16 @@ config_param_space = {
     "model": {
             "custom_model": "TorchSeparatedRasterModel",
             # Extra kwargs to be passed to your model's c'tor.
-            'future_num_frames':cfg["model_params"]["future_num_frames"],
-            'freeze_actor': True,
+            "custom_model_config": {
+                'future_num_frames':cfg["model_params"]["future_num_frames"],
+                'freeze_actor': False,
+                },
             },
     "pretrained_policy": pretrained_policy,
     '_disable_preprocessor_api': True,
     "eager_tracing": True,
     "restart_failed_sub_environments": True,
-    "lr": lr,
-    "vf_"
+    # "lr": lr,
     'seed': 42,
     "lr_schedule": [
          [1e6, lr_start],
