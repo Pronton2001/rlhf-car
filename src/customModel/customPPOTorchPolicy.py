@@ -29,8 +29,10 @@ class KLPPOTorchPolicy(
     """PyTorch policy class used with PPO."""
 
     def __init__(self, observation_space, action_space, config):
-        self.kl_div_weight = 1000
-        self.kl_il_rl = 0
+        self.kl_div_weight = 0.1
+        self.kl_il_rl = None
+        self.regularized_rewards = None
+        self.my_cur_rewards= None
         config = dict(ray.rllib.algorithms.ppo.ppo.PPOConfig().to_dict(), **config)
         # TODO: Move into Policy API, if needed at all here. Why not move this into
         #  `PPOConfig`?.
@@ -68,7 +70,9 @@ class KLPPOTorchPolicy(
                     torch.stack(self.get_tower_stats("mean_entropy"))
                 ),
                 "entropy_coeff": self.entropy_coeff,
-                "kl_human_e": self.kl_il_rl
+                "kl_human_e": self.kl_il_rl,
+                "ep_reward": self.my_cur_rewards,
+                "regularized_rewards": self.regularized_rewards,
             }
         )
 
@@ -127,12 +131,15 @@ class KLPPOTorchPolicy(
             output_logits_std = torch.cat((ones*lx, ones * ly, ones * lyaw), dim = -1)
             
             # scale = log_std.exp()
-            print(f'pretrain logits: {output_logits}, log_std: {output_logits_std}')
-            print('----------------')
+            # print(f'pretrain logits: {output_logits}, log_std: {output_logits_std}')
             pretrained_action_dist = TorchDiagGaussian(loc=output_logits, scale=torch.exp(output_logits_std))
 
-            # ppo_logits, _ = self.model.forward({'obs': obs} ,None,None)
+            
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            # print('device:', device)
+            ppo_logits, _ = self.model.forward({'obs': obs.to(device)} ,None,None)
             # print(f'ppo logits: {ppo_logits}')
+            # print('----------------')
             # # ppo_logits = ppo_logits.to(self.device)
             # assert ppo_logits.shape[1] == 6, f'{ppo_logits.shape} != torch.Size([x,6])'
             ppo_action_dist = self.dist_class(torch.as_tensor(sample_batch[SampleBatch.ACTION_DIST_INPUTS]).to('cpu'), self.model)
@@ -151,26 +158,29 @@ class KLPPOTorchPolicy(
             # logging.debug(f'ppo action dist {ppo_action_dist.dist}')
             # logging.debug(f'pretrain action dist {pretrained_action_dist.dist}')
             kl_div = ppo_action_dist.kl(pretrained_action_dist)
-            print(f'kl_div: {kl_div}, shape: {kl_div.shape}')
+            # print(f'kl_div: {kl_div}, shape: {kl_div.shape}')
             # kl_div = pretrained_action_dist.kl(ppo_action_dist)
             # kl_div = kl_divergence(pretrained_dist)
             # reversed_kl_div = pretrained_action_dist.kl(ppo_action_dist)
             # print(f'reversed kl_div: {reversed_kl_div}, shape: {reversed_kl_div.shape}')
-            print('----------------')
+            # print('----------------')
             
             # Add the KL penalty to the rewards
-            print(f'reward before: {sample_batch[SampleBatch.REWARDS]},\
-                  shape: {sample_batch[SampleBatch.REWARDS].shape}')
+            self.my_cur_rewards = sample_batch[SampleBatch.REWARDS]
+            # print(f'reward before: {sample_batch[SampleBatch.REWARDS]},\
+                #   shape: {sample_batch[SampleBatch.REWARDS].shape}')
             # logging.debug(f'reward shape{sample_batch[SampleBatch.REWARDS].shape}')
             # logging.debug(f'kl shape{kl_div.shape}, kl_div: {kl_div}')
 
-            self.kl_il_rl = kl_div.numpy()
+            self.kl_il_rl = kl_div.numpy().mean()
+            self.rs_after = kl_div.numpy().mean()
             sample_batch[SampleBatch.REWARDS] -= kl_div.numpy() * self.kl_div_weight
+            self.regularized_rewards= sample_batch[SampleBatch.REWARDS]
 
-            print(f'reward after: {sample_batch[SampleBatch.REWARDS]},\
-                  shape: {sample_batch[SampleBatch.REWARDS].shape}')
+            # print(f'reward after: {sample_batch[SampleBatch.REWARDS]},\
+                #   shape: {sample_batch[SampleBatch.REWARDS].shape}')
 
-            print('----------------')
+            # print('----------------')
             gae = super().postprocess_trajectory(
                 sample_batch, other_agent_batches, episode)
             

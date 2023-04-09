@@ -28,6 +28,7 @@ import pytz
 from ray import tune
 import torch
 from l5kit.planning.rasterized.model import RasterizedPlanningModelFeature
+ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode= False)
 
 
 from l5kit.configs import load_config_data
@@ -81,7 +82,7 @@ config_param_space = {
     "env": "L5-CLE-V1",
     "framework": "torch",
     "num_gpus": 1,
-    "num_workers": 4,
+    "num_workers": 8,
     "num_envs_per_worker": train_envs, #8 * 32
     'disable_env_checking':True,
     "model": {
@@ -114,7 +115,7 @@ config_param_space = {
 
 from src.customModel.customPPOTrainer import KLPPO
 # ray.tune.run(KLPPO, config=config_param_space, restore=path_to_trained_agent_checkpoint)
-checkpoint_path = '/workspace/datasets/ray_results/08-04-2023_14-17-36(RasterPPO_vf~2)/KLPPO_2023-04-08_07-17-36/KLPPO_L5-CLE-V1_70625_00000_0_2023-04-08_07-17-37/checkpoint_000030'
+# checkpoint_path = '/workspace/datasets/ray_results/08-04-2023_14-17-36(RasterPPO_vf~2)/KLPPO_2023-04-08_07-17-36/KLPPO_L5-CLE-V1_70625_00000_0_2023-04-08_07-17-37/checkpoint_000030'
 model = KLPPO(config=config_param_space, env='L5-CLE-V1')
 # model.restore(checkpoint_path)
 from ray.tune.logger import pretty_print
@@ -122,3 +123,14 @@ for i in range(10000):
     print('alo')
     result = model.train()
     print(pretty_print(result))
+# result_grid = tune.Tuner(
+#     KLPPO,
+#     run_config=air.RunConfig(
+#         stop={"episode_reward_mean": 0, 'timesteps_total': int(6e6)},
+#         local_dir=ray_result_logdir,
+#         checkpoint_config=air.CheckpointConfig(num_to_keep=2, 
+#                                             checkpoint_frequency = 10, 
+#                                             checkpoint_score_attribute = 'episode_reward_mean'),
+#         # callbacks=[WandbLoggerCallback(project="l5kit2", save_code = True, save_checkpoints = False),],
+#         ),
+#     param_space=config_param_space).fit()
