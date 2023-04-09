@@ -3,12 +3,374 @@ import torch.nn as nn
 import torch
 from torch.nn import functional as F
 from l5kit.planning.vectorized.open_loop_model import VectorizedModel, CustomVectorizedModel
+from l5kit.planning.rasterized.model import RasterizedPlanningModelFeature
+from torchvision.models.resnet import resnet18, resnet50
 import os
 import numpy as np
-os.environ['CUDA_VISIBLE_DEVICES']= '0'
+#os.environ['CUDA_VISIBLE_DEVICES']= '0'
 
 import logging
 logging.basicConfig(filename='/workspace/source/src/log/info.log', level=logging.DEBUG, filemode='w')
+from ray.rllib.algorithms.sac.sac_torch_model import SACTorchModel
+import gym
+from gym.spaces import Box, Discrete
+import numpy as np
+import tree  # pip install dm_tree
+from typing import Dict, List, Optional
+
+from ray.rllib.models.catalog import ModelCatalog
+from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
+from ray.rllib.utils.annotations import override
+from ray.rllib.utils.framework import try_import_torch
+from ray.rllib.utils.spaces.simplex import Simplex
+from ray.rllib.utils.typing import ModelConfigDict, TensorType, TensorStructType
+
+from l5kit.environment import models
+import warnings
+torch, nn = try_import_torch()
+
+# class TorchRasterQNet(TorchModelV2):
+#     def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+#             super().__init__(obs_space, action_space, num_outputs, model_config, name)
+
+
+class TorchRasterNet(TorchModelV2, nn.Module): #TODO: recreate rasternet for PPO, check again
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+        self.log_std_x = -5
+        self.log_std_y = -5
+        self.log_std_yaw = -5
+
+        # cfg = model_config["custom_model_config"]['cfg'] # TODO: Pass necessary params, not cfg
+        future_num_frames = model_config["custom_model_config"]['future_num_frames']
+        freeze_actor = model_config["custom_model_config"]['freeze_actor'] 
+        # d_model = model_config["custom_model_config"]['critic_feature_dim'] 
+        self._actor_head =RasterizedPlanningModelFeature(
+            model_arch="resnet50",
+            num_input_channels=5,
+            num_targets=3 * future_num_frames,  # feature dim of critic
+            weights_scaling=[1., 1., 1.],
+            criterion=nn.MSELoss(reduction="none"),)
+
+        critic_same_as_actor = False
+        if critic_same_as_actor:
+            d_model = 256 # NOTE: Old version, num_targets = d_model and require critic_FF
+            self._critic_head =RasterizedPlanningModelFeature(
+                model_arch="resnet50",
+                num_input_channels=5,
+                num_targets=1,  # feature dim of critic
+                weights_scaling=[1., 1., 1.],
+                criterion=nn.MSELoss(reduction="none"),)
+        else:
+            # d_model = 128
+            self._critic_head = RasterizedPlanningModelFeature(
+                model_arch="simple_cnn",
+                num_input_channels=5,
+                num_targets=1,  # feature dim of critic
+                weights_scaling=[1., 1., 1.],
+                criterion=nn.MSELoss(reduction="none"),)
+
+        # self._critic_FF = MLP(d_model, d_model * 4, output_dim= 1, num_layers=1)
+        model_path = "/workspace/source/src/model/planning_model_20201208.pt"
+#         model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
+        # self._critic_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
+        # self._actor_head = torch.load(model_path).to(self.device)
+        self._actor_head.load_state_dict(torch.load(model_path, map_location = 'cpu').state_dict())
+        if freeze_actor:
+            for param in self._actor_head.parameters():
+                param.requires_grad = False
+        # return self._actor_head
+    
+    def forward(self, input_dict, state, seq_lens):
+        obs_transformed = input_dict['obs']
+        # logging.debug('obs forward:'+ str(obs_transformed))
+        logits = self._actor_head(obs_transformed)
+        # logging.debug('predict traj' + str(logits))
+        STEP_TIME = 1
+
+        batch_size = len(input_dict)
+
+        predicted = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
+        # print(f'predicted {predicted}, shape: {predicted.shape}')
+        pred_x = predicted[:, 0, 0].view(-1,1) * STEP_TIME# take the first action 
+        pred_y = predicted[:, 0, 1].view(-1,1) * STEP_TIME# take the first action
+        pred_yaw = predicted[:, 0, 2].view(-1,1)* STEP_TIME# take the first action
+        # print(f'pred_x {pred_x}, shape: {pred_x.shape}')
+        # print(f'pred_y {pred_y}, shape: {pred_y.shape}')
+        # print(f'pred_yaw {pred_yaw}, shape: {pred_yaw.shape}')
+        # pred_x = logits['positions'][:,0, 0].view(-1,1) * STEP_TIME# take the first action 
+        # pred_y = logits['positions'][:,0, 1].view(-1,1) * STEP_TIME# take the first action
+        # pred_yaw = logits['yaws'][:,0,:].view(-1,1) * STEP_TIME# take the first action
+        ones = torch.ones_like(pred_x) # 32,
+        output_logits = torch.cat((pred_x, pred_y, pred_yaw, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
+        assert output_logits.shape[1] == 6, f'{output_logits.shape[1]}'
+        value = self._critic_head(obs_transformed)
+        # value = self._critic_FF(feature_value)
+        self._value = value.view(-1)
+
+        return output_logits, state
+    def value_function(self):
+        return self._value
+
+
+class TorchRasterNetSAC(SACTorchModel):
+    """
+    RasterNet Model agent
+    """
+    def __init__(
+        self,
+        obs_space: gym.spaces.Space,
+        action_space: gym.spaces.Space,
+        num_outputs: Optional[int],
+        model_config: ModelConfigDict,
+        name: str,
+        policy_model_config: ModelConfigDict = None,
+        q_model_config: ModelConfigDict = None,
+        twin_q: bool = True,
+        initial_alpha: float = 1.0,
+        target_entropy: Optional[float] = None,
+    ):
+
+        self.log_std_x = -5
+        self.log_std_y = -5
+        self.log_std_yaw = -5
+
+
+        self._critic_head =RasterizedPlanningModelFeature(
+            model_arch="resnet50",
+            num_input_channels=5,
+            num_targets=64,  # feature dim of critic
+            weights_scaling=[1., 1., 1.],
+            criterion=nn.MSELoss(reduction="none"),)
+
+        d_model = 64
+        self._critic_FF = MLP(d_model, d_model * 4, output_dim= 1, num_layers=1)
+        model_path = "/workspace/source/src/model/planning_model_20201208.pt"
+#         model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
+        # self._critic_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
+        # self._actor_head = torch.load(model_path).to(self.device)
+        # self._actor_head.load_state_dict(torch.load(model_path)).to(self.device)
+
+        # self._critic_head.load_state_dict()
+        # self.outputs = nn.ModuleList()
+        # for i in range(action_space.shape[0]):
+        #     self.outputs.append(nn.Linear(num_outputs, 1)) # 6x
+        super(TorchRasterNetSAC, self).__init__(
+            obs_space, action_space, num_outputs, model_config, name, policy_model_config, q_model_config, twin_q, initial_alpha, target_entropy
+        )
+        
+    def build_policy_model(self, obs_space, num_outputs, policy_model_config, name):
+        """Builds the policy model used by this SAC.
+
+        Override this method in a sub-class of SACTFModel to implement your
+        own policy net. Alternatively, simply set `custom_model` within the
+        top level SAC `policy_model` config key to make this default
+        implementation of `build_policy_model` use your custom policy network.
+
+        Returns:
+            TorchModelV2: The TorchModelV2 policy sub-model.
+        """
+        self._actor_head =RasterizedPlanningModelFeature(
+            model_arch="resnet50",
+            num_input_channels=5,
+            num_targets=3 ,#3 * cfg["model_params"]["future_num_frames"],  # X, Y, Yaw * number of future states 3 x 12
+            weights_scaling=[1., 1., 1.],
+            criterion=nn.MSELoss(reduction="none"),)
+        self._actor_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
+        # self._actor_head.to(self.device)
+        # self._actor_head.load_state_dict(torch.load(model_path).state_dict()).to(self.device)
+        for param in self._actor_head.parameters():
+            param.requires_grad = False
+        return self._actor_head
+
+    def build_q_model(self, obs_space, action_space, num_outputs, q_model_config, name): # TODO: take resnet50  224x224x5, how to concate input with action to compute Q?
+        """Builds one of the (twin) Q-nets used by this SAC.
+
+        Override this method in a sub-class of SACTFModel to implement your
+        own Q-nets. Alternatively, simply set `custom_model` within the
+        top level SAC `q_model_config` config key to make this default implementation
+        of `build_q_model` use your custom Q-nets.
+
+        Returns:
+            TorchModelV2: The TorchModelV2 Q-net sub-model.
+        """
+        self.concat_obs_and_actions = False
+        if self.discrete:
+            input_space = obs_space
+        else:
+            orig_space = getattr(obs_space, "original_space", obs_space)
+            if isinstance(orig_space, Box) and len(orig_space.shape) == 1:
+                input_space = Box(
+                    float("-inf"),
+                    float("inf"),
+                    shape=(orig_space.shape[0] + action_space.shape[0],),
+                )
+                self.concat_obs_and_actions = True
+            else:
+                input_space = gym.spaces.Tuple([orig_space, action_space])
+
+        model = ModelCatalog.get_model_v2(
+            input_space,
+            action_space,
+            num_outputs,
+            q_model_config,
+            framework="torch",
+            name=name,
+        )
+        return model
+    def forward(self, input_dict, state, seq_lens):
+        obs_transformed = input_dict['obs']
+        # logging.debug('obs forward:'+ str(obs_transformed))
+        logits = self._actor_head(obs_transformed)
+        # logging.debug('predict traj' + str(logits))
+        STEP_TIME = 1
+# <<<<<<< HEAD
+#         pred_x = logits['positions'][:,0, 0].view(-1,1).to(self.device) * STEP_TIME# take the first action 
+#         pred_y = logits['positions'][:,0, 1].view(-1,1).to(self.device) * STEP_TIME# take the first action
+#         pred_yaw = logits['yaws'][:,0,:].view(-1,1).to(self.device) * STEP_TIME# take the first action
+        
+#         std = torch.ones_like(pred_x).to(self.device) *-10 # 32,
+# #         raise ValueError(self.device, pred_x.device, std.device)
+#         # assert ones.shape[1] == 1, f'{ones.shape[1]}'
+#         # output_logits_mean = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
+#         output_logits = torch.cat((pred_x,pred_y, pred_yaw, std, std, std), dim = -1).to(self.device)
+# =======
+        
+        batch_size = len(input_dict)
+
+        predicted = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
+        # print(f'predicted {predicted}, shape: {predicted.shape}')
+        pred_x = predicted[:, 0, 0].view(-1,1) * STEP_TIME# take the first action 
+        pred_y = predicted[:, 0, 1].view(-1,1) * STEP_TIME# take the first action
+        pred_yaw = predicted[:, 0, 2].view(-1,1)* STEP_TIME# take the first action
+
+        # print(f'pred_x {pred_x}, shape: {pred_x.shape}')
+        # print(f'pred_y {pred_y}, shape: {pred_y.shape}')
+        # print(f'pred_yaw {pred_yaw}, shape: {pred_yaw.shape}')
+        # pred_x = logits['positions'][:,0, 0].view(-1,1) * STEP_TIME# take the first action 
+        # pred_y = logits['positions'][:,0, 1].view(-1,1) * STEP_TIME# take the first action
+        # pred_yaw = logits['yaws'][:,0,:].view(-1,1) * STEP_TIME# take the first action
+        ones = torch.ones_like(pred_x) # 32,
+        # assert ones.shape[1] == 1, f'{ones.shape[1]}'
+        # output_logits_mean = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
+        output_logits = torch.cat((pred_x, pred_y, pred_yaw, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
+# >>>>>>> a67daa30820ac7621232e8d1a33832b30093f810
+        # print('pretrained action', output_logits)
+        assert output_logits.shape[1] == 6, f'{output_logits.shape[1]}'
+        # self.outputs = output_logits
+
+        # dist = torch.distributions.Normal(output_logits_mean, torch.ones_like(output_logits_mean)*0.0005)
+        # print('-----------------------------sample', dist.rsample())
+
+        feature_value = self._critic_head(obs_transformed)
+        value = self._critic_FF(feature_value)
+        self._value = value.view(-1)
+
+        return output_logits, state
+    def value_function(self):
+        return self._value
+
+class TorchRasterQNet(TorchModelV2, nn.Module):
+    """
+    RasterNet Model agent
+    """
+
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+        # raise ValueError(num_outputs)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        cfg = model_config["custom_model_config"]['cfg'] # TODO: Pass necessary params, not cfg
+
+        # self.outputs = None
+        # self.log_std_x = np.log(5.373758673667908/10)
+        # self.log_std_y = np.log(0.08619927801191807/10)
+        # self.log_std_yaw = np.log(0.04215553868561983 / 10)
+        # self.outputs = None
+
+        self.log_std_x = -10
+        self.log_std_y = -10
+        self.log_std_yaw = -10
+
+        # self._num_predicted_frames = 1
+
+        # self._actor_head =RasterizedPlanningModelFeature(
+        #     model_arch="resnet50",
+        #     num_input_channels=5,
+        #     num_targets=3 * cfg["model_params"]["future_num_frames"],  # X, Y, Yaw * number of future states
+        #     weights_scaling=[1., 1., 1.],
+        #     criterion=nn.MSELoss(reduction="none"),)
+
+        self._state_net =RasterizedPlanningModelFeature(
+            model_arch="resnet50",
+            num_input_channels=5,
+            num_targets=256,  # feature dim of critic
+            weights_scaling=[1., 1., 1.],
+            criterion=nn.MSELoss(reduction="none"),)
+        # TODO: Build q model (copy reward model or resnet50 or any other CNN model)
+        self._action_net = nn.Sequential(
+            nn.Linear(action_space.shape[0], 256),
+            nn.ReLU()
+        )
+        assert action_space.shape[0] == num_outputs, f'{action_space.shape[0]} != {num_outputs}'
+        self.q_value = nn.Linear(512 + action_space.shape[0], 1)
+        # for param in self._actor_head.parameters():
+        #     param.requires_grad = False
+
+    def forward(self, input_dict, state, seq_lens):
+        raise ValueError(input_dict, input_dict['obs'].shape, input_dict['obs'])
+        obs_transformed = input_dict['obs']
+        # logging.debug('obs forward:'+ str(obs_transformed))
+        logits = self._actor_head(obs_transformed)
+        # logging.debug('predict traj' + str(logits))
+        STEP_TIME = 1
+# <<<<<<< HEAD
+#         pred_x = logits['positions'][:,0, 0].view(-1,1).to(self.device) * STEP_TIME# take the first action 
+#         pred_y = logits['positions'][:,0, 1].view(-1,1).to(self.device) * STEP_TIME# take the first action
+#         pred_yaw = logits['yaws'][:,0,:].view(-1,1).to(self.device) * STEP_TIME# take the first action
+        
+#         std = torch.ones_like(pred_x).to(self.device) *-10 # 32,
+# #         raise ValueError(self.device, pred_x.device, std.device)
+#         # assert ones.shape[1] == 1, f'{ones.shape[1]}'
+#         # output_logits_mean = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
+#         output_logits = torch.cat((pred_x,pred_y, pred_yaw, std, std, std), dim = -1).to(self.device)
+# =======
+        
+        batch_size = len(input_dict)
+
+        predicted = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
+        # print(f'predicted {predicted}, shape: {predicted.shape}')
+        pred_x = predicted[:, 0, 0].view(-1,1) * STEP_TIME# take the first action 
+        pred_y = predicted[:, 0, 1].view(-1,1) * STEP_TIME# take the first action
+        pred_yaw = predicted[:, 0, 2].view(-1,1)* STEP_TIME# take the first action
+
+        # print(f'pred_x {pred_x}, shape: {pred_x.shape}')
+        # print(f'pred_y {pred_y}, shape: {pred_y.shape}')
+        # print(f'pred_yaw {pred_yaw}, shape: {pred_yaw.shape}')
+        # pred_x = logits['positions'][:,0, 0].view(-1,1) * STEP_TIME# take the first action 
+        # pred_y = logits['positions'][:,0, 1].view(-1,1) * STEP_TIME# take the first action
+        # pred_yaw = logits['yaws'][:,0,:].view(-1,1) * STEP_TIME# take the first action
+        ones = torch.ones_like(pred_x) # 32,
+        # assert ones.shape[1] == 1, f'{ones.shape[1]}'
+        # output_logits_mean = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
+        output_logits = torch.cat((pred_x, pred_y, pred_yaw, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
+# >>>>>>> a67daa30820ac7621232e8d1a33832b30093f810
+        # print('pretrained action', output_logits)
+        assert output_logits.shape[1] == 6, f'{output_logits.shape[1]}'
+        # self.outputs = output_logits
+
+        # dist = torch.distributions.Normal(output_logits_mean, torch.ones_like(output_logits_mean)*0.0005)
+        # print('-----------------------------sample', dist.rsample())
+
+        feature_value = self._critic_head(obs_transformed)
+        value = self._critic_FF(feature_value)
+        self._value = value.view(-1)
+
+        return output_logits, state
+    def value_function(self):
+        return self._value
 
 class TorchGNCNN(TorchModelV2, nn.Module):
     """
@@ -250,14 +612,20 @@ class TorchAttentionModel3(TorchModelV2, nn.Module):
         super().__init__(obs_space, action_space, num_outputs, model_config, name)
         nn.Module.__init__(self)
 
+        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         cfg = model_config["custom_model_config"]['cfg']
         # print('action space:', action_space)
         # print('num output:', num_outputs)
         weights_scaling = [1.0, 1.0, 1.0]
         # self.outputs = None
-        self.log_std_x = np.log(5.373758673667908/10)
-        self.log_std_y = np.log(0.08619927801191807/10)
-        self.log_std_yaw = np.log(0.04215553868561983 / 10)
+        # self.log_std_x = np.log(5.373758673667908/10)
+        # self.log_std_y = np.log(0.08619927801191807/10)
+        # self.log_std_yaw = np.log(0.04215553868561983 / 10)
+        # self.outputs = None
+
+        self.log_std_x = -10
+        self.log_std_y = -10
+        self.log_std_yaw = -10
 
         self._num_predicted_frames = cfg["model_params"]["future_num_frames"]
         # self._num_predicted_frames = 1
@@ -289,20 +657,21 @@ class TorchAttentionModel3(TorchModelV2, nn.Module):
         model_path = "/workspace/source/src/model/OL_HS.pt"
 #         model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
         # self._critic_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
-        self._actor_head.load_state_dict(torch.load(model_path).state_dict())
+        self._actor_head.load_state_dict(torch.load(model_path).state_dict()).to(self.device)
+        for param in self._actor_head.parameters():
+            param.requires_grad = False
 
         # self._critic_head.load_state_dict()
         # self.outputs = nn.ModuleList()
         # for i in range(action_space.shape[0]):
         #     self.outputs.append(nn.Linear(num_outputs, 1)) # 6x
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
     def forward(self, input_dict, state, seq_lens):
         obs_transformed = input_dict['obs']
         # logging.debug('obs forward:'+ str(obs_transformed))
         logits = self._actor_head(obs_transformed)
         logging.debug('predict traj' + str(logits))
-        STEP_TIME = 0.1
+        STEP_TIME = 1
 # <<<<<<< HEAD
 #         pred_x = logits['positions'][:,0, 0].view(-1,1).to(self.device) * STEP_TIME# take the first action 
 #         pred_y = logits['positions'][:,0, 1].view(-1,1).to(self.device) * STEP_TIME# take the first action
@@ -435,8 +804,9 @@ if __name__ == '__main__':
         disable_map=cfg["model_params"]["disable_map"],
         disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
     
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model_path = "/workspace/source/src/model/OL_HS.pt"
-    pretrained_policy.load_state_dict(torch.load(model_path).state_dict())
+    pretrained_policy.load_state_dict(torch.load(model_path).state_dict()).to(device)
     # pretrain_dist = PretrainedDistribution(pretrained_policy)
 
     config_param_space = {

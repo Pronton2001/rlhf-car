@@ -8,8 +8,11 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.models.torch.torch_distributions import TorchDiagGaussian
 from ray.rllib.models.torch.torch_action_dist import TorchDiagGaussian as TorchActionDiagGaussian
 from ray.rllib.utils.annotations import override
+from ray.rllib.utils.typing import TensorType
 from ray.rllib.utils.framework import try_import_torch
+from ray.rllib.utils.numpy import convert_to_numpy
 
+import numpy as np
 torch, nn = try_import_torch()
 
 logger = logging.getLogger(__name__)
@@ -26,7 +29,8 @@ class KLPPOTorchPolicy(
     """PyTorch policy class used with PPO."""
 
     def __init__(self, observation_space, action_space, config):
-        self.kl_div_weight = 0.1
+        self.kl_div_weight = 1000
+        self.kl_il_rl = 0
         config = dict(ray.rllib.algorithms.ppo.ppo.PPOConfig().to_dict(), **config)
         # TODO: Move into Policy API, if needed at all here. Why not move this into
         #  `PPOConfig`?.
@@ -38,29 +42,46 @@ class KLPPOTorchPolicy(
             observation_space,
             action_space,
             config,
-            # max_seq_len=config["model"]["max_seq_len"],
-            # max_seq_len=20, #tri huynh
         )
-        # ValueNetworkMixin.__init__(self, config)
-        # LearningRateSchedule.__init__(self, config["lr"], config["lr_schedule"])
-        # EntropyCoeffSchedule.__init__(
-        #     self, config["entropy_coeff"], config["entropy_coeff_schedule"]
-        # )
-        # KLCoeffMixin.__init__(self, config)
+        
 
-        # TODO: Don't require users to call this manually.
-        # self._initialize_loss_from_dummy_batch()
+    @override(PPOTorchPolicy)
+    def stats_fn(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
+        return convert_to_numpy(
+            {
+                "cur_kl_coeff": self.kl_coeff,
+                "cur_lr": self.cur_lr,
+                "total_loss": torch.mean(
+                    torch.stack(self.get_tower_stats("total_loss"))
+                ),
+                "policy_loss": torch.mean(
+                    torch.stack(self.get_tower_stats("mean_policy_loss"))
+                ),
+                "vf_loss": torch.mean(
+                    torch.stack(self.get_tower_stats("mean_vf_loss"))
+                ),
+                "vf_explained_var": torch.mean(
+                    torch.stack(self.get_tower_stats("vf_explained_var"))
+                ),
+                "kl": torch.mean(torch.stack(self.get_tower_stats("mean_kl_loss"))),
+                "entropy": torch.mean(
+                    torch.stack(self.get_tower_stats("mean_entropy"))
+                ),
+                "entropy_coeff": self.entropy_coeff,
+                "kl_human_e": self.kl_il_rl
+            }
+        )
 
     @override(PPOTorchPolicy)
     def postprocess_trajectory(
         self, sample_batch, other_agent_batches=None, episode=None
     ):
+        self.pretrained_policy = self.config['pretrained_policy'] # NOTE: cannot move to def __init__() (some bugs)
         # Do all post-processing always with no_grad().
         # Not using this here will introduce a memory leak
         # in torch (issue #6962).
         # TODO: no_grad still necessary?
         with torch.no_grad():
-            pretrained_policy = self.config['pretrained_policy']
 
             # Convert observations to tensor
             # logging.debug('obs', sample_batch['obs'])
@@ -81,12 +102,24 @@ class KLPPOTorchPolicy(
             # obs = {}
             # for k,v in sample_batch[SampleBatch.CUR_OBS].items():
             #     obs[k] = torch.as_tensor(v).to('cpu')
-            obs = {k: torch.as_tensor(v).to('cpu') for k, v in sample_batch[SampleBatch.CUR_OBS].items()}
-            logits = pretrained_policy(obs)
-            STEP_TIME = 0.1
-            pred_x = logits['positions'][:,0, 0].view(-1,1) * STEP_TIME# take the first action 
-            pred_y = logits['positions'][:,0, 1].view(-1,1) * STEP_TIME# take the first action
-            pred_yaw = logits['yaws'][:,0,:].view(-1,1)* STEP_TIME# take the first action
+            obs = sample_batch[SampleBatch.CUR_OBS]
+            if type(obs) == Dict:
+                obs = {k: torch.as_tensor(v).to('cpu') for k, v in sample_batch[SampleBatch.CUR_OBS].items()}
+            elif type(obs) == np.ndarray:
+                obs = torch.as_tensor(obs).to('cpu')
+            logits = self.pretrained_policy(obs)
+
+            if type(logits) == Dict: # TODO: Change Vectorized output from dict -> numpy.ndarray
+                pred_x = logits['positions'][:,0, 0].view(-1,1)# take the first action 
+                pred_y = logits['positions'][:,0, 1].view(-1,1)# take the first action
+                pred_yaw = logits['yaws'][:,0,:].view(-1,1)# take the first action
+            else: # np.ndarray type
+                batch_size = len(obs)
+                predicted = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
+                # print(f'predicted {predicted}, shape: {predicted.shape}')
+                pred_x = predicted[:, 0, 0].view(-1,1) # take the first action 
+                pred_y = predicted[:, 0, 1].view(-1,1) # take the first action
+                pred_yaw = predicted[:, 0, 2].view(-1,1)# take the first action
             ones = torch.ones_like(pred_x) 
 
             lx, ly, lyaw= self.model.log_std_x, self.model.log_std_y, self.model.log_std_yaw
@@ -121,8 +154,8 @@ class KLPPOTorchPolicy(
             print(f'kl_div: {kl_div}, shape: {kl_div.shape}')
             # kl_div = pretrained_action_dist.kl(ppo_action_dist)
             # kl_div = kl_divergence(pretrained_dist)
-            reversed_kl_div = pretrained_action_dist.kl(ppo_action_dist)
-            print(f'reversed kl_div: {reversed_kl_div}, shape: {reversed_kl_div.shape}')
+            # reversed_kl_div = pretrained_action_dist.kl(ppo_action_dist)
+            # print(f'reversed kl_div: {reversed_kl_div}, shape: {reversed_kl_div.shape}')
             print('----------------')
             
             # Add the KL penalty to the rewards
@@ -131,8 +164,9 @@ class KLPPOTorchPolicy(
             # logging.debug(f'reward shape{sample_batch[SampleBatch.REWARDS].shape}')
             # logging.debug(f'kl shape{kl_div.shape}, kl_div: {kl_div}')
 
-
+            self.kl_il_rl = kl_div.numpy()
             sample_batch[SampleBatch.REWARDS] -= kl_div.numpy() * self.kl_div_weight
+
             print(f'reward after: {sample_batch[SampleBatch.REWARDS]},\
                   shape: {sample_batch[SampleBatch.REWARDS].shape}')
 

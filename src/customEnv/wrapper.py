@@ -136,6 +136,24 @@ class L5EnvWrapperTorch(Wrapper): # use transpose instead of reshape
 
     def reset(self) -> Dict[str, np.ndarray]:
         return self.env.reset()['image'].transpose(1,2,0) # C,W,H -> W, H, C (for SAC/PPO torch model)
+
+class L5EnvRasterizerTorch(Wrapper): # use transpose instead of reshape
+    def __init__(self, env, raster_size = 224, n_channels = 5):
+        super().__init__(env)
+        self.env = env
+        obs_shape = (n_channels, raster_size, raster_size)
+        self.observation_space =spaces.Box(low=0, high=1, shape=obs_shape, dtype=np.float32)
+        self.action_space =spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32)
+
+    def step(self, action:  np.ndarray) -> GymStepOutput:
+        output =  self.env.step(action)
+        onlyImageState = output.obs['image'] # C,W,H (for rasternet torch model)
+        
+        assert onlyImageState.shape[0] < onlyImageState.shape[1], f'wrong shape: {onlyImageState.shape}'
+        return GymStepOutput(onlyImageState, output.reward, output.done, output.info)
+
+    def reset(self) -> Dict[str, np.ndarray]:
+        return self.env.reset()['image']# C,W,H (for rasternet torch model)
     
 class L5EnvWrapperTF(Wrapper): # use transpose instead of reshape
     def __init__(self, env, raster_size = 112, n_channels = 7):

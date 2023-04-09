@@ -1,6 +1,8 @@
+import time
+start = time.time()
 import os
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
-os.environ['CUDA_VISIBLE_DEVICES']= '1'
+#os.environ['CUDA_VISIBLE_DEVICES']= '1'
 # os.environ["TUNE_RESULT_DIR"] =  '/DATA/l5kit/rllib_tb_logs'
 import gym
 from l5kit.configs import load_config_data
@@ -27,7 +29,7 @@ import torch
 from l5kit.planning.vectorized.open_loop_model import VectorizedModel, CustomVectorizedModel
 
 
-ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9)
+ray.init(num_cpus=4, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9)
 
 
 from l5kit.configs import load_config_data
@@ -41,7 +43,7 @@ cfg = load_config_data(env_config_path)
 
 
 #################### Define Training and Evaluation Environments ####################
-n_channels = (cfg['model_params']['future_num_frames'] + 1)* 2 + 3
+n_channels = (cfg['model_params']['history_num_frames'] + 1)* 2 + 3
 print(cfg['model_params']['future_num_frames'], cfg['model_params']['history_num_frames'], n_channels)
 from ray import tune
 from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch
@@ -112,7 +114,6 @@ train_sim_cfg = SimulationConfigGym()
 train_sim_cfg.num_simulation_steps = train_eps_length + 1
 env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': False, 'sim_cfg': train_sim_cfg, 'rescale_action': False}
 tune.register_env("L5-CLE-V2", lambda config: L5Env2(**env_kwargs))
-ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, local_mode=False)
 # algo = ppo.PPO(
 #         env="L5-CLE-V2",
 #         config={
@@ -150,8 +151,8 @@ ray_result_logdir = '/workspace/datasets/ray_results/debug' + date
 from src.customModel.customPPOTrainer import KLPPO
 train_envs = 4
 lr = 3e-3
-# lr_start = 3e-4
-# lr_end = 3e-5
+lr_start = 3e-4
+lr_end = 3e-5
 # lr_time = int(4e6)
 pretrained_policy = VectorizedModel(
         history_num_frames_ego=cfg["model_params"]["history_num_frames_ego"],
@@ -165,13 +166,14 @@ pretrained_policy = VectorizedModel(
         disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
     
 model_path = "/workspace/source/src/model/OL_HS.pt"
-pretrained_policy.load_state_dict(torch.load(model_path).state_dict())
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+pretrained_policy.load_state_dict(torch.load(model_path).state_dict()).to(device)
     # pretrain_dist = PretrainedDistribution(pretrained_policy)
 config_param_space = {
     "env": "L5-CLE-V2",
     "framework": "torch",
     "num_gpus": 1,
-    "num_workers": 8,
+    "num_workers": 3,
     "num_envs_per_worker": train_envs,
     'disable_env_checking':True,
     "model": {
@@ -184,13 +186,14 @@ config_param_space = {
     "eager_tracing": True,
     "restart_failed_sub_environments": True,
     "lr": lr,
+    "vf_"
     'seed': 42,
-    # "lr_schedule": [
-    #     [1e6, lr_start],
-    #     [2e6, lr_end],
-    # ],
-    'train_batch_size': 2048, # 8000 
-    'sgd_minibatch_size': 512, #2048
+    "lr_schedule": [
+         [1e6, lr_start],
+         [2e6, lr_end],
+     ],
+    'train_batch_size': 1024, # 8000 
+    'sgd_minibatch_size': 256, #2048
     'num_sgd_iter': 10,#16,
     'seed': 42,
     # 'batch_mode': 'truncate_episodes',
@@ -198,6 +201,7 @@ config_param_space = {
     'gamma': 0.8,    
 }
 
+print(f'setup time: {time.time() - start}')
 result_grid = tune.Tuner(
     KLPPO,
     run_config=air.RunConfig(
@@ -211,12 +215,12 @@ result_grid = tune.Tuner(
     param_space=config_param_space).fit()
 
 
-trainer = KLPPO(config=config_param_space)
-from ray.tune.logger import pretty_print
-for i in range(10000):
-    print('alo')
-    result = trainer.train()
-    print(pretty_print(result))
+# trainer = KLPPO(config=config_param_space)
+# from ray.tune.logger import pretty_print
+# for i in range(10000):
+#     print('alo')
+#     result = trainer.train()
+#     print(pretty_print(result))
 
 #################### Retrain ####################
 # ray_result_logdir = '/workspace/datasets/ray_results/01-04-2023_19-55-37_(PPO~-70)/PPO'
