@@ -57,7 +57,7 @@ class KLPPO(PPO):
     def get_default_policy_class(
         cls, config: AlgorithmConfig
     ) -> Optional[Type[Policy]]:
-        from src.customModel.customPPOTorchPolicy import KLPPOTorchPolicy
-        return KLPPOTorchPolicy
         from ray.rllib.algorithms.ppo.ppo_torch_policy import PPOTorchPolicy
         return PPOTorchPolicy
+        from src.customModel.customPPOTorchPolicy import KLPPOTorchPolicy
+        return KLPPOTorchPolicy

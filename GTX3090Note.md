@@ -283,3 +283,11 @@ SAC_RLlib:
 + at scene 57 turn left although the GT turn right.
 + 82: go straight while GT turn left
 + 89: collide
+
+pointnet , PointNet ++, apply permutation invariant operations (e.g. max pooling) on learned point em-beddings.
+PointNet can solve:
+- learn invariant of N! unorder points?
+- local interaction
+- global interation: rotation, translation,... invariance
+
+max-pooling ->r as a symmetric function
