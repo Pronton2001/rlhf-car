@@ -143,7 +143,7 @@ class L5EnvRasterizerTorch(Wrapper): # use transpose instead of reshape
         self.env = env
         obs_shape = (n_channels, raster_size, raster_size)
         self.observation_space =spaces.Box(low=0, high=1, shape=obs_shape, dtype=np.float32)
-        self.action_space =spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32)
+        self.action_space =spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
 
     def step(self, action:  np.ndarray) -> GymStepOutput:
         output =  self.env.step(action)

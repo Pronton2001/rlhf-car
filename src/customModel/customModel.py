@@ -2,12 +2,13 @@ from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 import torch.nn as nn
 import torch
 from torch.nn import functional as F
+from src.customEnv.normalize_action import standard_normalizer
 from l5kit.planning.vectorized.open_loop_model import VectorizedModel, CustomVectorizedModel
 from l5kit.planning.rasterized.model import RasterizedPlanningModelFeature
 from torchvision.models.resnet import resnet18, resnet50
 import os
 import numpy as np
-#os.environ['CUDA_VISIBLE_DEVICES']= '0'
+# os.environ['CUDA_VISIBLE_DEVICES']= '0'
 
 import logging
 logging.basicConfig(filename='/workspace/source/src/log/info.log', level=logging.DEBUG, filemode='w')
@@ -41,11 +42,20 @@ class TorchRasterNet(TorchModelV2, nn.Module): #TODO: recreate rasternet for PPO
         self.log_std_x = -5
         self.log_std_y = -5
         self.log_std_yaw = -5
+        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # print('torchrasternet init device', self.device)
 
         # cfg = model_config["custom_model_config"]['cfg'] # TODO: Pass necessary params, not cfg
         future_num_frames = model_config["custom_model_config"]['future_num_frames']
         freeze_actor = model_config["custom_model_config"]['freeze_actor'] 
+        self.non_kin_rescale = model_config["custom_model_config"]['non_kin_rescale'] 
         # d_model = model_config["custom_model_config"]['critic_feature_dim'] 
+        self.pretrained_policy = RasterizedPlanningModelFeature(
+            model_arch="resnet50",
+            num_input_channels=5,
+            num_targets=3 * future_num_frames,  # feature dim of critic
+            weights_scaling=[1., 1., 1.],
+            criterion=nn.MSELoss(reduction="none"),)
         self._actor_head =RasterizedPlanningModelFeature(
             model_arch="resnet50",
             num_input_channels=5,
@@ -71,42 +81,35 @@ class TorchRasterNet(TorchModelV2, nn.Module): #TODO: recreate rasternet for PPO
                 weights_scaling=[1., 1., 1.],
                 criterion=nn.MSELoss(reduction="none"),)
 
-        # self._critic_FF = MLP(d_model, d_model * 4, output_dim= 1, num_layers=1)
         model_path = "/workspace/source/src/model/planning_model_20201208.pt"
-#         model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
-        # self._critic_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
-        # self._actor_head = torch.load(model_path).to(self.device)
-        self._actor_head.load_state_dict(torch.load(model_path, map_location = 'cpu').state_dict())
+        self.pretrained_policy.load_state_dict(torch.load(model_path).state_dict())
+        self._actor_head.load_state_dict(torch.load(model_path).state_dict()) # NOTE: somehow actor_head in cuda device
+        device = next(self.pretrained_policy.parameters()).device
+        print('>>>>>>>>>>>>>>pretrained_cuda:', device)
+        device = next(self._actor_head.parameters()).device
+        print('>>>>>>>>>>>>>>actor_head device:', device)
+        device = next(self._critic_head.parameters()).device
+        print('>>>>>>>>>>>>>>critic_head device:', device)
         if freeze_actor:
             for param in self._actor_head.parameters():
                 param.requires_grad = False
-        # return self._actor_head
     
     def forward(self, input_dict, state, seq_lens):
         obs_transformed = input_dict['obs']
-        # logging.debug('obs forward:'+ str(obs_transformed))
         logits = self._actor_head(obs_transformed)
-        # logging.debug('predict traj' + str(logits))
-        STEP_TIME = 1
-
         batch_size = len(input_dict)
+        pretrained_logits = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
+        action = pretrained_logits[:,0,:].view(-1,3)
 
-        predicted = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
-        # print(f'predicted {predicted}, shape: {predicted.shape}')
-        pred_x = predicted[:, 0, 0].view(-1,1) * STEP_TIME# take the first action 
-        pred_y = predicted[:, 0, 1].view(-1,1) * STEP_TIME# take the first action
-        pred_yaw = predicted[:, 0, 2].view(-1,1)* STEP_TIME# take the first action
-        # print(f'pred_x {pred_x}, shape: {pred_x.shape}')
-        # print(f'pred_y {pred_y}, shape: {pred_y.shape}')
-        # print(f'pred_yaw {pred_yaw}, shape: {pred_yaw.shape}')
-        # pred_x = logits['positions'][:,0, 0].view(-1,1) * STEP_TIME# take the first action 
-        # pred_y = logits['positions'][:,0, 1].view(-1,1) * STEP_TIME# take the first action
-        # pred_yaw = logits['yaws'][:,0,:].view(-1,1) * STEP_TIME# take the first action
-        ones = torch.ones_like(pred_x) # 32,
-        output_logits = torch.cat((pred_x, pred_y, pred_yaw, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
-        assert output_logits.shape[1] == 6, f'{output_logits.shape[1]}'
+        # print(f'predicted actions: {action}, shape: {action.shape}')
+        action = standard_normalizer(self.non_kin_rescale, action) # take first action
+        # print(f'rescaled actions: {action}, shape: {action.shape}')
+        ones = torch.ones(batch_size,1).to(action.device) # 32,
+
+        # print(ones.device, action.device)
+        output_logits = torch.cat((action, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
+        # assert output_logits.shape[1] == 6, f'{output_logits.shape[1]}'
         value = self._critic_head(obs_transformed)
-        # value = self._critic_FF(feature_value)
         self._value = value.view(-1)
 
         return output_logits, state

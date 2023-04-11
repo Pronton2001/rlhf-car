@@ -278,6 +278,9 @@ class TorchDistribution(Distribution, abc.ABC):
 AttributeError: 'numpy.random._generator.Generator' object has no attribute 'randint'
 -> change randint -> integers
 
+* Do not use gpu before ray rllib (PPO.train). At customModel in def __init__() the model loaded is still on cpu, but after that it is all on gpu (def forward(), in CustomPPOTorchPolicy,...)
+
+
 # Scenes 
 SAC_RLlib: 
 + at scene 57 turn left although the GT turn right.

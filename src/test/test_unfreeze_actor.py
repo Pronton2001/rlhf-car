@@ -2,7 +2,7 @@ import time
 start = time.time()
 import os
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
-os.environ['CUDA_VISIBLE_DEVICES']= '0'
+# os.environ['CUDA_VISIBLE_DEVICES']= '0'
 os.environ['RAY_memory_monitor_refresh_ms']='0'
 # os.environ["TUNE_RESULT_DIR"] =  '/DATA/l5kit/rllib_tb_logs'
 import gym
@@ -38,6 +38,7 @@ cfg = load_config_data(env_config_path)
 
 ModelCatalog.register_custom_model( "TorchSeparatedRasterModel", TorchRasterNet)
 
+# os.environ['CUDA_VISIBLE_DEVICES']= '1'
 n_channels = (cfg['model_params']['history_num_frames'] + 1)* 2 + 3
 print('num channels:', n_channels)
 from ray import tune
@@ -47,7 +48,8 @@ train_sim_cfg = SimulationConfigGym()
 train_sim_cfg.num_simulation_steps = train_eps_length + 1
 
 
-env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': False, 'sim_cfg': train_sim_cfg, 'rescale_action': False}
+env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': False, 'sim_cfg': train_sim_cfg, 'rescale_action': True}
+non_kin_rescale = L5Env(**env_kwargs).non_kin_rescale
 tune.register_env("L5-CLE-V1", lambda config: L5EnvRasterizerTorch(env = L5Env(**env_kwargs), \
                                                            raster_size= cfg['raster_params']['raster_size'][0], \
                                                            n_channels = n_channels))
@@ -66,18 +68,6 @@ ray_result_logdir = '/workspace/datasets/ray_results/debug_unfreeze_actorNet' + 
 lr_start = 3e-5
 lr_end = 3e-6
 
-pretrained_policy = RasterizedPlanningModelFeature(
-                model_arch="resnet50",
-                num_input_channels=5,
-                num_targets=3 * cfg["model_params"]["future_num_frames"],  # X, Y, Yaw * number of future states
-                weights_scaling=[1., 1., 1.],
-                criterion=nn.MSELoss(reduction="none"),)
-
-model_path = "/workspace/source/src/model/planning_model_20201208.pt"
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-pretrained_policy.load_state_dict(torch.load(model_path).state_dict())
-# pretrained_policy.to(device)
 config_param_space = {
     "env": "L5-CLE-V1",
     "framework": "torch",
@@ -88,23 +78,25 @@ config_param_space = {
     "model": {
             "custom_model": "TorchSeparatedRasterModel",
             # Extra kwargs to be passed to your model's c'tor.
-            "custom_model_config": {
-                'future_num_frames':cfg["model_params"]["future_num_frames"],
-                'freeze_actor': False,
-                },
+             "custom_model_config": {
+                    'future_num_frames':cfg["model_params"]["future_num_frames"],
+                    'freeze_actor': True,
+                    'non_kin_rescale': non_kin_rescale,
+                    },
             },
-    "pretrained_policy": pretrained_policy,
     '_disable_preprocessor_api': True,
     "eager_tracing": True,
     "restart_failed_sub_environments": True,
     # "lr": lr,
     'seed': 42,
+    'kl_coef': 0.01,
+    'use_critic': True,
     "lr_schedule": [
          [1e6, lr_start],
          [2e6, lr_end],
      ],
-    'train_batch_size': 1024, # 8000 
-    'sgd_minibatch_size': 64, #2048
+    'train_batch_size': 2048, # 8000 
+    'sgd_minibatch_size': 512, #2048
     'num_sgd_iter': 10,#10,#16,
     'seed': 42,
     # 'batch_mode': 'truncate_episodes',
