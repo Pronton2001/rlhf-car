@@ -121,7 +121,6 @@ class KLPPOTorchPolicy(
             #     obs[k] = torch.as_tensor(v).to('cpu')
 
             # Cal distribution of pretrain model 's action
-            raise ValueError('------------------_<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>------------------')
             obs = sample_batch[SampleBatch.CUR_OBS]
             if type(obs) == Dict:
                 obs = {k: torch.as_tensor(v).to(self.device) for k, v in sample_batch[SampleBatch.CUR_OBS].items()}
