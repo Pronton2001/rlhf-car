@@ -30,21 +30,32 @@ class KLPPOTorchPolicy(
 
     def __init__(self, observation_space, action_space, config):
         self.kl_div_weight = 0.1
-        self.kl_il_rl = None
-        self.regularized_rewards = None
-        self.my_cur_rewards= None
         config = dict(ray.rllib.algorithms.ppo.ppo.PPOConfig().to_dict(), **config)
         # TODO: Move into Policy API, if needed at all here. Why not move this into
         #  `PPOConfig`?.
         validate_config(config)
+        self.pretrained_policy = None
+        self.kl_il_rl = 0
+        self.regularized_rewards = 0
+        self.my_cur_rewards= 0
 
         config["model"]["max_seq_len"] = 20
+        # print('init pretrained:', device)
+        # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # self.pretrained_policy.to(device)
+        # print('init device:', device)
         PPOTorchPolicy.__init__(
             self,
             observation_space,
             action_space,
             config,
         )
+        self.pretrained_policy = self.model.pretrained_policy # NOTE: cannot move to def __init__() (some bugs)
+        self.device = next(self.pretrained_policy.parameters()).device
+        print('>>>>>>>>>>> pretrained KL PPO Torch:', self.device)
+        self.kl_il_rl = 0
+        self.regularized_rewards = 0
+        self.my_cur_rewards= 0
         
 
     @override(PPOTorchPolicy)
@@ -70,9 +81,10 @@ class KLPPOTorchPolicy(
                     torch.stack(self.get_tower_stats("mean_entropy"))
                 ),
                 "entropy_coeff": self.entropy_coeff,
-                "kl_human_e": self.kl_il_rl,
-                "ep_reward": self.my_cur_rewards,
-                "regularized_rewards": self.regularized_rewards,
+                # FIXME: It do not change value
+                # "kl_human_e": self.kl_il_rl,
+                # "ep_reward": self.my_cur_rewards,
+                # "regularized_rewards": self.regularized_rewards,
             }
         )
 
@@ -80,12 +92,14 @@ class KLPPOTorchPolicy(
     def postprocess_trajectory(
         self, sample_batch, other_agent_batches=None, episode=None
     ):
-        self.pretrained_policy = self.config['pretrained_policy'] # NOTE: cannot move to def __init__() (some bugs)
         # Do all post-processing always with no_grad().
         # Not using this here will introduce a memory leak
         # in torch (issue #6962).
         # TODO: no_grad still necessary?
         with torch.no_grad():
+            if self.pretrained_policy == None:
+                return super().postprocess_trajectory(
+                    sample_batch, other_agent_batches, episode)
 
             # Convert observations to tensor
             # logging.debug('obs', sample_batch['obs'])
@@ -101,17 +115,20 @@ class KLPPOTorchPolicy(
 
             # pretrained_action_dist = pretrained_policy.dist_class(pretrained_policy.model.outputs, pretrained_policy.model)
 
-            # TODO: cal distribution of pretrain model 's action
             # logging.debug('ppo traj' + str(self.model.outputs))
             # obs = {}
             # for k,v in sample_batch[SampleBatch.CUR_OBS].items():
             #     obs[k] = torch.as_tensor(v).to('cpu')
+
+            # Cal distribution of pretrain model 's action
+            raise ValueError('------------------_<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>------------------')
             obs = sample_batch[SampleBatch.CUR_OBS]
             if type(obs) == Dict:
-                obs = {k: torch.as_tensor(v).to('cpu') for k, v in sample_batch[SampleBatch.CUR_OBS].items()}
+                obs = {k: torch.as_tensor(v).to(self.device) for k, v in sample_batch[SampleBatch.CUR_OBS].items()}
             elif type(obs) == np.ndarray:
-                obs = torch.as_tensor(obs).to('cpu')
+                obs = torch.as_tensor(obs).to(self.device)
             logits = self.pretrained_policy(obs)
+            print('pretrained device:', self.device)
 
             if type(logits) == Dict: # TODO: Change Vectorized output from dict -> numpy.ndarray
                 pred_x = logits['positions'][:,0, 0].view(-1,1)# take the first action 
@@ -120,7 +137,6 @@ class KLPPOTorchPolicy(
             else: # np.ndarray type
                 batch_size = len(obs)
                 predicted = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
-                # print(f'predicted {predicted}, shape: {predicted.shape}')
                 pred_x = predicted[:, 0, 0].view(-1,1) # take the first action 
                 pred_y = predicted[:, 0, 1].view(-1,1) # take the first action
                 pred_yaw = predicted[:, 0, 2].view(-1,1)# take the first action
@@ -130,19 +146,18 @@ class KLPPOTorchPolicy(
             output_logits = torch.cat((pred_x,pred_y, pred_yaw), dim = -1)
             output_logits_std = torch.cat((ones*lx, ones * ly, ones * lyaw), dim = -1)
             
-            # scale = log_std.exp()
-            # print(f'pretrain logits: {output_logits}, log_std: {output_logits_std}')
             pretrained_action_dist = TorchDiagGaussian(loc=output_logits, scale=torch.exp(output_logits_std))
 
             
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             # print('device:', device)
-            ppo_logits, _ = self.model.forward({'obs': obs.to(device)} ,None,None)
+            # ppo_logits, _ = self.model.forward({'obs': obs.to(device)} ,None,None)
             # print(f'ppo logits: {ppo_logits}')
             # print('----------------')
             # # ppo_logits = ppo_logits.to(self.device)
             # assert ppo_logits.shape[1] == 6, f'{ppo_logits.shape} != torch.Size([x,6])'
-            ppo_action_dist = self.dist_class(torch.as_tensor(sample_batch[SampleBatch.ACTION_DIST_INPUTS]).to('cpu'), self.model)
+            ppo_action_dist = self.dist_class(torch.as_tensor(sample_batch[SampleBatch.ACTION_DIST_INPUTS]).to(self.device), self.model)
+
             
             
             # Create a distribution from the pretrained model
@@ -166,23 +181,22 @@ class KLPPOTorchPolicy(
             # print('----------------')
             
             # Add the KL penalty to the rewards
-            self.my_cur_rewards = sample_batch[SampleBatch.REWARDS]
+            # self.my_cur_rewards = sample_batch[SampleBatch.REWARDS]
             # print(f'reward before: {sample_batch[SampleBatch.REWARDS]},\
                 #   shape: {sample_batch[SampleBatch.REWARDS].shape}')
             # logging.debug(f'reward shape{sample_batch[SampleBatch.REWARDS].shape}')
             # logging.debug(f'kl shape{kl_div.shape}, kl_div: {kl_div}')
-
-            self.kl_il_rl = kl_div.numpy().mean()
-            self.rs_after = kl_div.numpy().mean()
-            sample_batch[SampleBatch.REWARDS] -= kl_div.numpy() * self.kl_div_weight
-            self.regularized_rewards= sample_batch[SampleBatch.REWARDS]
+            kl_div = kl_div.cpu().numpy()
+            # self.kl_il_rl = kl_div.mean()
+            #logging.debug('kl div:', kl_div* self.kl_div_weight)
+            # self.rs_after = kl_div.cpu().numpy().mean()
+            sample_batch[SampleBatch.REWARDS] -=  kl_div* self.kl_div_weight
+            # print( sample_batch[SampleBatch.REWARDS].device)
+            # self.regularized_rewards= sample_batch[SampleBatch.REWARDS]
 
             # print(f'reward after: {sample_batch[SampleBatch.REWARDS]},\
                 #   shape: {sample_batch[SampleBatch.REWARDS].shape}')
 
             # print('----------------')
-            gae = super().postprocess_trajectory(
+            return super().postprocess_trajectory(
                 sample_batch, other_agent_batches, episode)
-            
-            
-            return gae
