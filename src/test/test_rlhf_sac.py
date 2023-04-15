@@ -1,6 +1,7 @@
 import os
+
+from src.constant import SRC_PATH
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
-os.environ['CUDA_VISIBLE_DEVICES']= '1'
 import gym
 
 # from stable_baselines3 import PPO
@@ -36,40 +37,35 @@ import pytz
 from l5kit.configs import load_config_data
 
 # get environment config
-env_config_path = '/workspace/source/src/configs/gym_config84.yaml'
+env_config_path = SRC_PATH + 'src/configs/gym_config84.yaml'
 cfg = load_config_data(env_config_path)
-ray.init(num_cpus=10, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9)
+ray.init(num_cpus=1, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9, local_mode= True)
 
 
-from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch
+from src.customEnv.wrapper import L5EnvWrapperHFreward
 from ray import tune
 train_eps_length = 32
 train_sim_cfg = SimulationConfigGym()
 train_sim_cfg.num_simulation_steps = train_eps_length + 1
 # Register , how your env should be constructed (always with 5, or you can take values from the `config` EnvContext object):
 env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cfg': train_sim_cfg}
-
-tune.register_env("L5-CLE-V0", lambda config: L5Env(**env_kwargs))
-# tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapper(env = L5Env(**env_kwargs), \
-#                                                            raster_size= cfg['raster_params']['raster_size'][0], \
-#                                                            n_channels = 7))
-tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
+tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperHFreward (env = L5Env(**env_kwargs), \
                                                            raster_size= cfg['raster_params']['raster_size'][0], \
                                                            n_channels = 7))
 
 #################### Wandb ####################
 
-import numpy as np
-import ray
-from ray import air, tune
-from ray.air import session
-from ray.air.integrations.wandb import setup_wandb
-from ray.air.integrations.wandb import WandbLoggerCallback
-os.environ['WANDB_NOTEBOOK_NAME'] = '/workspace/source/rllib_sac.py'
-os.environ["WANDB_API_KEY"] = '083592c84134c040dcca598c644c348d32540a08'
+# import numpy as np
+# import ray
+# from ray import air, tune
+# from ray.air import session
+# from ray.air.integrations.wandb import setup_wandb
+# from ray.air.integrations.wandb import WandbLoggerCallback
+# os.environ['WANDB_NOTEBOOK_NAME'] = '/workspace/source/rllib_sac.py'
+# os.environ["WANDB_API_KEY"] = '083592c84134c040dcca598c644c348d32540a08'
 
-import wandb
-wandb.init(project="l5kit2", reinit = True)
+# import wandb
+# wandb.init(project="l5kit2", reinit = True)
 
 #################### Train ####################
 import ray
@@ -78,7 +74,7 @@ train_envs = 4
 
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/workspace/datasets/ray_results/' + date
+ray_result_logdir = '~/ray_results/debug_sac_rlhf' + date
 
 lr = 3e-3
 lr_start = 3e-4
@@ -149,7 +145,7 @@ result_grid = tune.Tuner(
     run_config=air.RunConfig(
         stop={"episode_reward_mean": 0, 'timesteps_total': int(4e6)},
         local_dir=ray_result_logdir,
-        checkpoint_config=air.CheckpointConfig(num_to_keep=2, checkpoint_frequency = 100, checkpoint_score_attribute = 'episode_reward_mean'),
+        checkpoint_config=air.CheckpointConfig(num_to_keep=2, checkpoint_frequency = 10, checkpoint_score_attribute = 'episode_reward_mean'),
         # callbacks=[WandbLoggerCallback( project="l5kit2", save_checkpoints=False),],
     ),
         
@@ -159,9 +155,9 @@ result_grid = tune.Tuner(
 # path_to_trained_agent_checkpoint = 'l5kit/ray_results/29-12-2022_07-47-22/SAC/SAC_L5-CLE-V1_5af7a_00000_0_2022-12-29_00-47-23/checkpoint_000249'
 # from ray.rllib.algorithms.sac import SAC
 # ray.tune.run(SAC, config=config_param_space, restore=path_to_trained_agent_checkpoint)
-ray_result_logdir = '/workspace/datasets/ray_results/debug02-04-2023_11-30-49/SAC'
+# ray_result_logdir = '/workspace/datasets/ray_results/debug02-04-2023_11-30-49/SAC'
 
-tuner = tune.Tuner.restore(
-    path=ray_result_logdir, resume_errored = True
-)
-tuner.fit()
+# tuner = tune.Tuner.restore(
+#     path=ray_result_logdir, resume_errored = True
+# )
+# tuner.fit()

@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from numpy.testing import assert_equal
 import logging
+from src.constant import SRC_PATH
 from src.pref.pref_db import PrefDB
 from src.pref.utils import RunningStat
 
@@ -98,7 +99,7 @@ def train_and_save_RW_model(dataset, model_path = 'src/pref/model/model.pt', num
     return model
 
 class RewardModelPredictor:
-    def __init__(self, model_path = 'src/pref/model/model.pt', kwargs = dict(state_shape=(84, 84, 7), action_shape=(3,))):
+    def __init__(self, model_path = SRC_PATH + 'src/pref/model/model.pt', kwargs = dict(state_shape=(84, 84, 7), action_shape=(3,))):
         #NOTE: kwargs['state_shape'] (84,84,7) is different from obs.shape (7,84,84)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.device = 'cpu'#NOTE: Remove for deploy

@@ -3,11 +3,13 @@ from gym import Wrapper, spaces
 from l5kit.environment.envs.l5_env import GymStepOutput
 import numpy as np
 import matplotlib.pyplot as plt
-from src.pref.model import RewardModelPredictor
+from src.pref.rewardModel import RewardModelPredictor
 from torch import load
 import torch
 # import logging
 from numpy.testing import assert_equal
+
+# from pref.rewardModel import RewardModelPredictor
 
 # logging.basicConfig(filename='src/log/info.log', level=logging.DEBUG, filemode='w')
 
@@ -93,7 +95,7 @@ class L5EnvWrapperHFreward(Wrapper):# TODO - Code Unit test for this wrapper
         self.raster_size = raster_size
         obs_shape = (self.raster_size, self.raster_size, self.n_channels)
         self.observation_space =spaces.Box(low=0, high=1, shape=obs_shape, dtype=np.float32)
-        self.action_space = spaces.Box(low=-1, high=1, shape=(3, ))        
+        # self.action_space = spaces.Box(low=-1, high=1, shape=(3, ))        
         # load RW predictor
         self.RWpredictor = RewardModelPredictor()
 

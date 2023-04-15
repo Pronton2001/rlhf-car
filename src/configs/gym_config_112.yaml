@@ -51,16 +51,16 @@ raster_params:
 ###################
 ## Data loader options
 train_data_loader:
-  key: "train9G/train.zarr"
+  key: "train/train.zarr"
 
 val_data_loader:
-  key: "scene/sample.zarr"
+  key: "validate/validate.zarr"
 
 ###################
 ## Gym params
 gym_params:
-  max_scene_id: 16265
-  max_val_scene_id: 100
+  max_scene_id: 134622
+  max_val_scene_id: 16220
   randomize_start_frame: True
   overfit: False
   overfit_id: 0

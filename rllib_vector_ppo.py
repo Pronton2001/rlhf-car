@@ -1,4 +1,5 @@
 import os
+from src.customModel.customModel import TorchAttentionModel3
 
 from src.constant import SRC_PATH
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
@@ -7,6 +8,7 @@ os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
 import gym
 from l5kit.configs import load_config_data
 from l5kit.environment.envs.l5_env import SimulationConfigGym, GymStepOutput, L5Env
+from l5kit.environment.envs.l5_env2 import SimulationConfigGym, GymStepOutput, L5Env2
 from l5kit.visualization.visualizer.zarr_utils import episode_out_to_visualizer_scene_gym_cle
 from l5kit.visualization.visualizer.visualizer import visualize
 from bokeh.io import output_notebook, show
@@ -32,14 +34,14 @@ from l5kit.configs import load_config_data
 # get environment config
 # env_config_path = '/workspace/source/configs/gym_config_history3.yaml'
 # env_config_path = '/workspace/source/configs/gym_config84.yaml'
-env_config_path = SRC_PATH + 'src/configs/gym_config84.yaml'
+env_config_path = SRC_PATH + 'src/configs/gym_vectorizer_config.yaml'
 # env_config_path = '/workspace/source/src/configs/gym_vectorizer_config.yaml'
 cfg = load_config_data(env_config_path)
 
 
 #################### Define Training and Evaluation Environments ####################
-n_channels = (cfg['model_params']['future_num_frames'] + 1)* 2 + 3
-print(cfg['model_params']['future_num_frames'], cfg['model_params']['history_num_frames'], n_channels)
+# n_channels = (cfg['model_params']['future_num_frames'] + 1)* 2 + 3
+# print(cfg['model_params']['future_num_frames'], cfg['model_params']['history_num_frames'], n_channels)
 from ray import tune
 from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch
 train_eps_length = 32
@@ -50,13 +52,14 @@ train_sim_cfg.num_simulation_steps = train_eps_length + 1
 # Register , how your env should be constructed (always with 5, or you can take values from the `config` EnvContext object):
 env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cfg': train_sim_cfg}
 
-tune.register_env("L5-CLE-V0", lambda config: L5Env(**env_kwargs))
+tune.register_env("L5-CLE-V2", lambda config: L5Env2(**env_kwargs))
+ModelCatalog.register_custom_model( "TorchAttentionModel3", TorchAttentionModel3)
 # tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapper(env = L5Env(**env_kwargs), \
 #                                                            raster_size= cfg['raster_params']['raster_size'][0], \
+# #                                                            n_channels = n_channels))
+# tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
+#                                                            raster_size= cfg['raster_params']['raster_size'][0], \
 #                                                            n_channels = n_channels))
-tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
-                                                           raster_size= cfg['raster_params']['raster_size'][0], \
-                                                           n_channels = n_channels))
 
 #################### Wandb ####################
 
@@ -69,6 +72,7 @@ tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**en
 # os.environ['WANDB_NOTEBOOK_NAME'] = '/workspace/source/rllib_ppo.py'
 # os.environ["WANDB_API_KEY"] = '083592c84134c040dcca598c644c348d32540a08'
 
+
 # import wandb
 # wandb.init(project="l5kit2", reinit = True)
 
@@ -77,7 +81,7 @@ import ray
 from ray import air, tune
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/home/pronton/ray_results/debug_ppo' + date
+ray_result_logdir = '/home/pronton/ray_results/debug_vector_ppo' + date
 
 train_envs = 4
 lr = 3e-3
@@ -86,24 +90,24 @@ lr_end = 3e-5
 lr_time = int(4e6)
 
 config_param_space = {
-    "env": "L5-CLE-V1",
+    "env": "L5-CLE-V2",
     "framework": "torch",
     "num_gpus": 1,
     "num_workers": 8,
     "num_envs_per_worker": train_envs,
-    # "model": {
-    #     "custom_model": "GN_CNN_torch_model",
-    #     "custom_model_config": {'feature_dim':128},
-    # },
-    
-    'model' : {
-            # "dim": 84,
-            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-            # "conv_activation": "relu",
-            "post_fcnet_hiddens": [256],
-            "post_fcnet_activation": "relu",
-            "vf_share_layers": False,   
+    "model": {
+        "custom_model": "TorchAttentionModel3",
+        "custom_model_config": {'cfg':cfg},
     },
+    
+    # 'model' : {
+    #         # "dim": 84,
+    #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+    #         # "conv_activation": "relu",
+    #         "post_fcnet_hiddens": [256],
+    #         "post_fcnet_activation": "relu",
+    #         "vf_share_layers": False,   
+    # },
     
     '_disable_preprocessor_api': True,
      "eager_tracing": True,

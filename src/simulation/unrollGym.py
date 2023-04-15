@@ -4,8 +4,7 @@ from l5kit.visualization.visualizer.zarr_utils import episode_out_to_visualizer_
 from l5kit.configs import load_config_data
 
 dmg = LocalDataManager(None)
-source_path = '/workspace/source/'
-env_config_path = source_path + 'src/configs/gym_config.yaml'
+env_config_path = 'src/configs/gym_config.yaml'
 cfg = load_config_data(env_config_path)
 mapAPI = MapAPI.from_cfg(dmg, cfg)
 
@@ -37,10 +36,11 @@ def rollout_episode(model, env, idx = 0, num_simulation_steps = None):
         sim_out = info["sim_outs"][0]
         return sim_out
 
-def unroll(model, rollout_env, num_scenes_to_unroll, num_simulation_steps, num_scenes_total):
+def unroll(model, rollout_env, num_scenes_to_unroll, num_scenes_total, num_simulation_steps = None):
     scenes_to_unroll = list(range(0, num_scenes_total, num_scenes_total//num_scenes_to_unroll))
     sim_outs =[]
-    for i in range(scenes_to_unroll):
+    for i in scenes_to_unroll:
+        print('scene id:', i)
         sim_outs.append(rollout_episode(model, rollout_env, i, num_simulation_steps))
     return sim_outs
 

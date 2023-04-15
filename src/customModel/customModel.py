@@ -7,11 +7,12 @@ from l5kit.planning.vectorized.open_loop_model import VectorizedModel, CustomVec
 from l5kit.planning.rasterized.model import RasterizedPlanningModelFeature
 from torchvision.models.resnet import resnet18, resnet50
 import os
+from src.constant import SRC_PATH
 import numpy as np
 # os.environ['CUDA_VISIBLE_DEVICES']= '0'
 
 import logging
-logging.basicConfig(filename='/workspace/source/src/log/info.log', level=logging.DEBUG, filemode='w')
+logging.basicConfig(filename='src/log/info.log', level=logging.DEBUG, filemode='w')
 from ray.rllib.algorithms.sac.sac_torch_model import SACTorchModel
 import gym
 from gym.spaces import Box, Discrete
@@ -81,7 +82,7 @@ class TorchRasterNet(TorchModelV2, nn.Module): #TODO: recreate rasternet for PPO
                 weights_scaling=[1., 1., 1.],
                 criterion=nn.MSELoss(reduction="none"),)
 
-        model_path = "/workspace/source/src/model/planning_model_20201208.pt"
+        model_path = SRC_PATH + "src/model/planning_model_20201208.pt"
         self.pretrained_policy.load_state_dict(torch.load(model_path).state_dict())
         self._actor_head.load_state_dict(torch.load(model_path).state_dict()) # NOTE: somehow actor_head in cuda device
         device = next(self.pretrained_policy.parameters()).device
@@ -116,6 +117,108 @@ class TorchRasterNet(TorchModelV2, nn.Module): #TODO: recreate rasternet for PPO
     def value_function(self):
         return self._value
 
+class TorchRasterNet2(TorchModelV2, nn.Module): #TODO: recreate rasternet for PPO, check again
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # print('torchrasternet init device', self.device)
+
+        # cfg = model_config["custom_model_config"]['cfg'] # TODO: Pass necessary params, not cfg
+        future_num_frames = model_config["custom_model_config"]['future_num_frames']
+        freeze_actor = model_config["custom_model_config"]['freeze_actor'] 
+        n_channels = model_config["custom_model_config"]['n_channels'] 
+        critic_net = model_config["custom_model_config"]['critic_net']
+        actor_net = model_config["custom_model_config"]['actor_net']
+        # self.non_kin_rescale = model_config["custom_model_config"]['non_kin_rescale'] 
+        # d_model = model_config["custom_model_config"]['critic_feature_dim'] 
+        self.simple_actor = False
+
+        actor_feature_dim = 3 * future_num_frames
+        actor_feature_dim = num_outputs
+        crtitic_feature_dim = 1
+        self.pretrained_policy = RasterizedPlanningModelFeature(
+            model_arch="resnet50",
+            num_input_channels=5, # pretrained model input: 5x224x224
+            num_targets=3 * 12, 
+            weights_scaling=[1., 1., 1.],
+            criterion=nn.MSELoss(reduction="none"),)
+
+        self._actor_head =RasterizedPlanningModelFeature(
+            model_arch=actor_net,
+            num_input_channels=n_channels,
+            num_targets= actor_feature_dim , # or same as pretrained_policy to load
+            weights_scaling=[1., 1., 1.],
+            criterion=nn.MSELoss(reduction="none"),)
+
+        self._critic_head =RasterizedPlanningModelFeature(
+            model_arch=critic_net,
+            num_input_channels=n_channels,
+            num_targets=crtitic_feature_dim,  # feature dim of critic
+            weights_scaling=[1., 1., 1.],
+            criterion=nn.MSELoss(reduction="none"),)
+
+        if freeze_actor:
+            model_path = SRC_PATH + "src/model/planning_model_20201208.pt"
+            self.pretrained_policy.load_state_dict(torch.load(model_path).state_dict())
+            self._actor_head.load_state_dict(torch.load(model_path).state_dict()) # NOTE: somehow actor_head in cuda device
+            for param in self._actor_head.parameters():
+                param.requires_grad = False
+
+        device = next(self.pretrained_policy.parameters()).device
+        print('>>>>>>>>>>>>>>pretrained device:', device)
+        device = next(self._actor_head.parameters()).device
+        print('>>>>>>>>>>>>>>actor_head device:', device)
+        device = next(self._critic_head.parameters()).device
+        print('>>>>>>>>>>>>>>critic_head device:', device)
+    
+        # self._critic_mlp = nn.Sequential(
+        #     nn.BatchNorm1d(crtitic_feature_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(crtitic_feature_dim, 1),
+        # )
+        if actor_feature_dim != num_outputs:
+            self._actor_mlp = nn.Sequential(
+                nn.Linear(actor_feature_dim, 256),
+                nn.ReLU(),
+                nn.Linear(256, num_outputs),
+            )
+        else:
+            self._actor_mlp = nn.Sequential()
+        if crtitic_feature_dim != 1:
+            self._critic_mlp = nn.Sequential(
+                nn.Linear(crtitic_feature_dim, 1)
+            )
+        else:
+            self._critic_mlp = nn.Sequential()
+
+    def forward(self, input_dict, state, seq_lens):
+        obs_transformed = input_dict['obs']
+        # if self.simple_actor:
+        #     logits = self._actor_head(obs_transformed)
+        # else:
+        traj = self._actor_head(obs_transformed)
+        logits = self._actor_mlp(traj)
+
+        # batch_size = len(input_dict)
+        # pretrained_logits = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
+        # action = pretrained_logits[:,0,:].view(-1,3)
+
+        # print(f'predicted actions: {action}, shape: {action.shape}')
+        # action = standard_normalizer(self.non_kin_rescale, action) # take first action
+        # print(f'rescaled actions: {action}, shape: {action.shape}')
+        # ones = torch.ones(batch_size,1).to(action.device) # 32,
+
+        # print(ones.device, action.device)
+        # output_logits = torch.cat((action, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
+        # assert output_logits.shape[1] == 6, f'{output_logits.shape[1]}'
+        value = self._critic_mlp(self._critic_head(obs_transformed))
+        self._value = value.view(-1)
+
+        # return output_logits, state
+        return logits, state
+    def value_function(self):
+        return self._value
 
 class TorchRasterNetSAC(SACTorchModel):
     """
@@ -424,7 +527,7 @@ class TorchGNCNN(TorchModelV2, nn.Module):
     def forward(self, input_dict, state, seq_lens): # from dataloader? get 32, 112, 112, 7
         # obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # 32 x 112 x 112 x 7 [B, size, size, channels]
         obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # [B, C, W, H] -> [B, W, H, C]
-        print('forward', obs_transformed.shape)
+        # print('forward', obs_transformed.shape)
         network_output = self.network(obs_transformed)
 # >>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
         value = self._critic_head(network_output)
@@ -626,9 +729,9 @@ class TorchAttentionModel3(TorchModelV2, nn.Module):
         # self.log_std_yaw = np.log(0.04215553868561983 / 10)
         # self.outputs = None
 
-        self.log_std_x = -10
-        self.log_std_y = -10
-        self.log_std_yaw = -10
+        self.log_std_x = -5
+        self.log_std_y = -5
+        self.log_std_yaw = -5
 
         self._num_predicted_frames = cfg["model_params"]["future_num_frames"]
         # self._num_predicted_frames = 1
@@ -657,10 +760,10 @@ class TorchAttentionModel3(TorchModelV2, nn.Module):
 
         d_model = 256
         self._critic_FF = MLP(d_model, d_model * 4, output_dim= 1, num_layers=1)
-        model_path = "/workspace/source/src/model/OL_HS.pt"
+        model_path = "/home/pronton/rlhf-car/src/model/OL_HS.pt"
 #         model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
         # self._critic_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
-        self._actor_head.load_state_dict(torch.load(model_path).state_dict()).to(self.device)
+        self._actor_head.load_state_dict(torch.load(model_path).state_dict())
         for param in self._actor_head.parameters():
             param.requires_grad = False
 
