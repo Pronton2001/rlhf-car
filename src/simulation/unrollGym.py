@@ -25,7 +25,7 @@ def rollout_episode(model, env, idx = 0, num_simulation_steps = None):
         done = False
         while True:
             # action, _ = model.predict(obs, deterministic=True)
-            action = model.compute_single_action(obs, deterministic=True)
+            action = model.compute_single_action(obs, explore=False)
             obs, _, done, info = env.step(action)
             if num_simulation_steps and idx >= num_simulation_steps:
                 done = True

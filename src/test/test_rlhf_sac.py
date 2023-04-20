@@ -39,7 +39,7 @@ from l5kit.configs import load_config_data
 # get environment config
 env_config_path = SRC_PATH + 'src/configs/gym_config84.yaml'
 cfg = load_config_data(env_config_path)
-ray.init(num_cpus=1, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9, local_mode= True)
+ray.init(num_cpus=1, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9, local_mode= False)
 
 
 from src.customEnv.wrapper import L5EnvWrapperHFreward
@@ -140,16 +140,16 @@ config_param_space = {
     "min_sample_timesteps_per_iteration": 2048, # 8000
 }
 
-result_grid = tune.Tuner(
-    "SAC",
-    run_config=air.RunConfig(
-        stop={"episode_reward_mean": 0, 'timesteps_total': int(4e6)},
-        local_dir=ray_result_logdir,
-        checkpoint_config=air.CheckpointConfig(num_to_keep=2, checkpoint_frequency = 10, checkpoint_score_attribute = 'episode_reward_mean'),
-        # callbacks=[WandbLoggerCallback( project="l5kit2", save_checkpoints=False),],
-    ),
+# result_grid = tune.Tuner(
+#     "SAC",
+#     run_config=air.RunConfig(
+#         stop={"episode_reward_mean": 0, 'timesteps_total': int(4e6)},
+#         local_dir=ray_result_logdir,
+#         checkpoint_config=air.CheckpointConfig(num_to_keep=2, checkpoint_frequency = 10, checkpoint_score_attribute = 'episode_reward_mean'),
+#         # callbacks=[WandbLoggerCallback( project="l5kit2", save_checkpoints=False),],
+#     ),
         
-    param_space=config_param_space).fit()
+#     param_space=config_param_space).fit()
 #################### Retrain ####################
 # config_param_space['stop']['timesteps_total'] = 3e-5
 # path_to_trained_agent_checkpoint = 'l5kit/ray_results/29-12-2022_07-47-22/SAC/SAC_L5-CLE-V1_5af7a_00000_0_2022-12-29_00-47-23/checkpoint_000249'
@@ -161,3 +161,11 @@ result_grid = tune.Tuner(
 #     path=ray_result_logdir, resume_errored = True
 # )
 # tuner.fit()
+from src.customModel.customSACTrainer import KLSAC
+model = KLSAC(config=config_param_space, env='L5-CLE-V1')
+
+from ray.tune.logger import pretty_print
+for i in range(10000):
+    print('alo')
+    result = model.train()
+    print(pretty_print(result))

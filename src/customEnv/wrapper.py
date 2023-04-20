@@ -98,6 +98,7 @@ class L5EnvWrapperHFreward(Wrapper):# TODO - Code Unit test for this wrapper
         # self.action_space = spaces.Box(low=-1, high=1, shape=(3, ))        
         # load RW predictor
         self.RWpredictor = RewardModelPredictor()
+        # self.sacModel = 
 
 
     def step(self, action:  np.ndarray) -> GymStepOutput: 
@@ -118,6 +119,8 @@ class L5EnvWrapperHFreward(Wrapper):# TODO - Code Unit test for this wrapper
             info_ = {'reward_tot': pred}
         
         reward_ = pred
+        # TODO: Add KL penalty self.model.get_action_dist
+        # model
         return GymStepOutput(obs_, reward_, output.done, info_)# NOTE: For SAC,PPO ray rllib policy
 
     def reset(self) -> Dict[str, np.ndarray]:

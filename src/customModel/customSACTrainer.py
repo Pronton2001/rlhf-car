@@ -1,63 +1,50 @@
-"""
-Proximal Policy Optimization (PPO)
-==================================
-
-This file defines the distributed Algorithm class for proximal policy
-optimization.
-See `ppo_[tf|torch]_policy.py` for the definition of the policy loss.
-
-Detailed documentation: https://docs.ray.io/en/master/rllib-algorithms.html#ppo
-"""
-
 import logging
-from typing import List, Optional, Type, Union
+from typing import Type, Dict, Any, Optional, Union
 
-from ray.util.debug import log_once
-from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig, NotProvided
-from ray.rllib.algorithms.pg import PGConfig
-from ray.rllib.execution.rollout_ops import (
-    standardize_fields,
-)
-from ray.rllib.execution.train_ops import (
-    train_one_step,
-    multi_gpu_train_one_step,
-)
-from ray.rllib.utils.annotations import ExperimentalAPI
+from ray.rllib.algorithms.dqn.dqn import DQN
+from ray.rllib.algorithms.sac.sac_tf_policy import SACTFPolicy
 from ray.rllib.policy.policy import Policy
+from ray.rllib.utils import deep_update
 from ray.rllib.utils.annotations import override
 from ray.rllib.utils.deprecation import (
-    Deprecated,
     DEPRECATED_VALUE,
     deprecation_warning,
+    Deprecated,
 )
-from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
-from ray.rllib.utils.typing import ResultDict
-from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
-from ray.rllib.utils.metrics import (
-    NUM_AGENT_STEPS_SAMPLED,
-    NUM_ENV_STEPS_SAMPLED,
-    SYNCH_WORKER_WEIGHTS_TIMER,
-)
+from ray.rllib.utils.framework import try_import_tf, try_import_tfp
+from ray.rllib.algorithms.sac.sac import SACConfig
+from src.customModel.customSACTorchPolicy import KLSACTorchPolicy
+
+tf1, tf, tfv = try_import_tf()
+tfp = try_import_tfp()
 
 logger = logging.getLogger(__name__)
-from ray.rllib.algorithms.ppo.ppo import PPOConfig, PPO
 
 
+class KLSAC(DQN):
+    """Soft Actor Critic (SAC) Algorithm class.
 
+    This file defines the distributed Algorithm class for the soft actor critic
+    algorithm.
+    See `sac_[tf|torch]_policy.py` for the definition of the policy loss.
 
-class KLPPO(PPO):
-    # @classmethod
-    # @override(PPO)
-    # def get_default_config(cls) -> AlgorithmConfig:
-    #     return PPOConfig()
+    Detailed documentation:
+    https://docs.ray.io/en/master/rllib-algorithms.html#sac
+    """
+
+    def __init__(self, *args, **kwargs):
+        self._allow_unknown_subkeys += ["policy_model_config", "q_model_config"]
+        super().__init__(*args, **kwargs)
 
     @classmethod
-    @override(PPO)
+    @override(DQN)
+    def get_default_config(cls) -> AlgorithmConfig:
+        return SACConfig()
+
+    @classmethod
+    @override(DQN)
     def get_default_policy_class(
         cls, config: AlgorithmConfig
     ) -> Optional[Type[Policy]]:
-        from ray.rllib.algorithms.ppo.ppo_torch_policy import PPOTorchPolicy
-        return PPOTorchPolicy
-        from src.customModel.customPPOTorchPolicy import KLPPOTorchPolicy
-        return KLPPOTorchPolicy
+        return KLSACTorchPolicy

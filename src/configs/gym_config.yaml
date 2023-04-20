@@ -63,4 +63,4 @@ gym_params:
   max_val_scene_id: 16220
   randomize_start_frame: True
   overfit: False
-  # overfit_id: 0
+  overfit_id: 0

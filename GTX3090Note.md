@@ -3,15 +3,15 @@ Private repo cloning: https://Pronton2001@github.com/Pronton2001/reponame
 ```bash
 cd /path/to/l5kit/l5kit
 pipenv sync --dev # pip install -e git+https://Pronton2001@github.com/Pronton2001/l5kit2@1bf5f8666850f7f8d915232c5bffaed9fb87643c#egg=l5kit&subdirectory=l5kit
-pip install stable-baselines3==1.7
+pip install stable-baselines3==1.7 #1.1,1.6
 pip install wandb
 pip install tensorflow-probability
 pip install ray[rllib]==2.2.0
 pip install tensorflow==2.11
 pip install torch==1.13
 p3 install setuptools==65.5.0
-pip install gym==0.21.0 #(very important, l5kit can not run without it)
-pip install numpy==1.22
+pip install gym==0.21.0 #(very important, l5kit can not run without it), # 0.22.0
+pip install numpy==1.22 #1.22.4
 ```
 
 ## Use ssh tunneling:
@@ -295,3 +295,5 @@ PointNet can solve:
 - global interation: rotation, translation,... invariance
 
 max-pooling ->r as a symmetric function
+
+* Tanh, bias is important for model.

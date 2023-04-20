@@ -1,6 +1,6 @@
 import os
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
-os.environ['CUDA_VISIBLE_DEVICES']= '1'
+# os.environ['CUDA_VISIBLE_DEVICES']= '1'
 import gym
 
 # from stable_baselines3 import PPO
@@ -29,6 +29,7 @@ from typing import Dict
 import numpy as np
 import ray
 import pytz
+from src.constant import SRC_PATH
 
 
 # Dataset is assumed to be on the folder specified
@@ -36,9 +37,9 @@ import pytz
 from l5kit.configs import load_config_data
 
 # get environment config
-env_config_path = '/workspace/source/src/configs/gym_config84.yaml'
+env_config_path = SRC_PATH + 'src/configs/gym_config84.yaml'
 cfg = load_config_data(env_config_path)
-ray.init(num_cpus=10, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9)
+ray.init(num_cpus=3, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9)
 
 
 from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch
@@ -59,17 +60,17 @@ tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**en
 
 #################### Wandb ####################
 
-import numpy as np
-import ray
-from ray import air, tune
-from ray.air import session
-from ray.air.integrations.wandb import setup_wandb
-from ray.air.integrations.wandb import WandbLoggerCallback
-os.environ['WANDB_NOTEBOOK_NAME'] = '/workspace/source/rllib_sac.py'
-os.environ["WANDB_API_KEY"] = '083592c84134c040dcca598c644c348d32540a08'
+# import numpy as np
+# import ray
+# from ray import air, tune
+# from ray.air import session
+# from ray.air.integrations.wandb import setup_wandb
+# from ray.air.integrations.wandb import WandbLoggerCallback
+# os.environ['WANDB_NOTEBOOK_NAME'] = '/workspace/source/rllib_sac.py'
+# os.environ["WANDB_API_KEY"] = '083592c84134c040dcca598c644c348d32540a08'
 
-import wandb
-wandb.init(project="l5kit2", reinit = True)
+# import wandb
+# wandb.init(project="l5kit2", reinit = True)
 
 #################### Train ####################
 import ray
@@ -78,7 +79,7 @@ train_envs = 4
 
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/workspace/datasets/ray_results/' + date
+ray_result_logdir = '/home/pronton/ray_results/debug_sac' + date
 
 lr = 3e-3
 lr_start = 3e-4
@@ -87,7 +88,7 @@ config_param_space = {
     "env": "L5-CLE-V1",
     "framework": "torch",
     "num_gpus": 1,
-    "num_workers": 8, # 63
+    "num_workers": 2, # 63
     "num_envs_per_worker": train_envs,
     'q_model_config' : {
             # "dim": 112,
@@ -110,7 +111,7 @@ config_param_space = {
         'capacity': int(1e5), #int(1e5)
         "worker_side_prioritization": True,
     },
-    'num_steps_sampled_before_learning_starts': 2048, # 8000,
+    'num_steps_sampled_before_learning_starts': 1024, #8000
     
     'target_entropy': 'auto',
 #     "model": {
@@ -141,7 +142,7 @@ config_param_space = {
     'gamma': 0.8,
     'twin_q' : True,
     "lr": 3e-4,
-    "min_sample_timesteps_per_iteration": 2048, # 8000
+    "min_sample_timesteps_per_iteration": 1024, # 8000
 }
 
 result_grid = tune.Tuner(
@@ -149,7 +150,7 @@ result_grid = tune.Tuner(
     run_config=air.RunConfig(
         stop={"episode_reward_mean": 0, 'timesteps_total': int(4e6)},
         local_dir=ray_result_logdir,
-        checkpoint_config=air.CheckpointConfig(num_to_keep=2, checkpoint_frequency = 100, checkpoint_score_attribute = 'episode_reward_mean'),
+        checkpoint_config=air.CheckpointConfig(num_to_keep=2, checkpoint_frequency = 10, checkpoint_score_attribute = 'episode_reward_mean'),
         # callbacks=[WandbLoggerCallback( project="l5kit2", save_checkpoints=False),],
     ),
         
@@ -159,9 +160,16 @@ result_grid = tune.Tuner(
 # path_to_trained_agent_checkpoint = 'l5kit/ray_results/29-12-2022_07-47-22/SAC/SAC_L5-CLE-V1_5af7a_00000_0_2022-12-29_00-47-23/checkpoint_000249'
 # from ray.rllib.algorithms.sac import SAC
 # ray.tune.run(SAC, config=config_param_space, restore=path_to_trained_agent_checkpoint)
-ray_result_logdir = '/workspace/datasets/ray_results/debug02-04-2023_11-30-49/SAC'
+from ray.rllib.algorithms.sac import SAC
+    # checkpoint_path = 'l5kit/ray_results/01-01-2023_15-53-49/SAC/SAC_L5-CLE-V1_cf7bb_00000_0_2023-01-01_08-53-50/checkpoint_000170'
+    # checkpoint_path = '/home/pronton/ray_results/31-12-2022_07-53-04/SAC/SAC_L5-CLE-V1_7bae1_00000_0_2022-12-31_00-53-04/checkpoint_000360'
+checkpoint_path = '/home/pronton/ray_results/debug_sac16-04-2023_14-35-28/SAC/SAC_L5-CLE-V1_428d6_00000_0_2023-04-16_07-35-28/checkpoint_000100'
+model = SAC(config=config_param_space, env='L5-CLE-V2')
+model.restore(checkpoint_path)
 
-tuner = tune.Tuner.restore(
-    path=ray_result_logdir, resume_errored = True
-)
-tuner.fit()
+# ray_result_logdir = '/workspace/datasets/ray_results/debug02-04-2023_11-30-49/SAC'
+
+# tuner = tune.Tuner.restore(
+#     path=ray_result_logdir, resume_errored = True
+# )
+# tuner.fit()

@@ -2,6 +2,7 @@ from typing import Dict
 from l5kit.data.map_api import MapAPI
 from l5kit.environment.envs.l5_env import GymStepOutput, SimulationConfigGym, L5Env
 import gym
+from src.constant import SRC_PATH
 from src.customEnv import wrapper
 import os
 from matplotlib import pyplot as plt
@@ -12,6 +13,10 @@ from l5kit.data import ChunkedDataset, LocalDataManager
 
 os.environ['L5KIT_DATA_FOLDER'] = '/workspace/datasets/'
 
+
+actions = [np.array([0.33075115, 0.9822087 , 0.35992876], dtype=np.float32), np.array([-0.47357458,  0.45461076,  0.57742184], dtype=np.float32), np.array([ 0.5737099 ,  0.90265733, -0.6825135 ], dtype=np.float32), np.array([-0.6482308 ,  0.1528697 ,  0.22510704], dtype=np.float32), np.array([0.32743016, 0.55001056, 0.2772629 ], dtype=np.float32), np.array([ 0.09946773, -0.8968407 , -0.7836492 ], dtype=np.float32), np.array([-0.73099047, -0.2190136 ,  0.3157143 ], dtype=np.float32), np.array([-0.37622538, -0.98760587,  0.23697242], dtype=np.float32)]
+
+i = 0
 def rollout_episode(env, idx = 0):
     """Rollout a particular scene index and return the simulation output.
 
@@ -23,13 +28,18 @@ def rollout_episode(env, idx = 0):
 
     # Set the reset_scene_id to 'idx'
     env.set_reset_id(idx)
+    global i
+    
     
     # Rollout step-by-step
     obs = env.reset()
     done = False
     while True:
-        # action = np.array(env.action_space.sample())
-        obs, _, done, info = env.step(np.array(env.action_space.sample()))
+        #action = np.array(env.action_space.sample())
+        #actions.append(action)
+        action = actions[i]
+        i+=1
+        obs, _, done, info = env.step(action)
         if done:
             break
 
@@ -44,17 +54,18 @@ def rollout_episode(env, idx = 0):
 # export PYTHONPATH=/workspace/source
 sim_outs =[]
 rollout_sim_cfg = SimulationConfigGym()
-rollout_sim_cfg.num_simulation_steps = None
-env_config_path = '/workspace/source/src/configs/gym_config.yaml'
+rollout_sim_cfg.num_simulation_steps = 10
+env_config_path = SRC_PATH + 'src/configs/gym_config.yaml'
 
 # env_config_path = 
-env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': False, 'sim_cfg': rollout_sim_cfg,  'train': True, 'return_info': True}
+env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cfg': rollout_sim_cfg,  'train': True, 'return_info': True}
 
 rollout_env = L5Env(**env_kwargs)
 
-for i in range(4):
+for i in range(1):
     rollout_episode(rollout_env, i)
 
+#print(actions)
 # might change with different rasterizer
 # mapAPI = MapAPI.from_cfg(dmg, cfg)
 

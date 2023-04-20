@@ -32,7 +32,8 @@ from l5kit.configs import load_config_data
 # get environment config
 # env_config_path = '/workspace/source/configs/gym_config_history3.yaml'
 # env_config_path = '/workspace/source/configs/gym_config84.yaml'
-env_config_path = SRC_PATH + 'src/configs/gym_config84.yaml'
+# env_config_path = SRC_PATH + 'src/configs/gym_config84.yaml'
+env_config_path = SRC_PATH + 'src/configs/gym_config.yaml'
 # env_config_path = '/workspace/source/src/configs/gym_vectorizer_config.yaml'
 cfg = load_config_data(env_config_path)
 
@@ -42,7 +43,7 @@ n_channels = (cfg['model_params']['future_num_frames'] + 1)* 2 + 3
 print(cfg['model_params']['future_num_frames'], cfg['model_params']['history_num_frames'], n_channels)
 from ray import tune
 from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch
-train_eps_length = 32
+train_eps_length = None
 train_sim_cfg = SimulationConfigGym()
 train_sim_cfg.num_simulation_steps = train_eps_length + 1
 
@@ -51,12 +52,12 @@ train_sim_cfg.num_simulation_steps = train_eps_length + 1
 env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cfg': train_sim_cfg}
 
 tune.register_env("L5-CLE-V0", lambda config: L5Env(**env_kwargs))
-# tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapper(env = L5Env(**env_kwargs), \
-#                                                            raster_size= cfg['raster_params']['raster_size'][0], \
-#                                                            n_channels = n_channels))
-tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
+tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapper(env = L5Env(**env_kwargs), \
                                                            raster_size= cfg['raster_params']['raster_size'][0], \
                                                            n_channels = n_channels))
+# tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
+#                                                            raster_size= cfg['raster_params']['raster_size'][0], \
+#                                                            n_channels = n_channels))
 
 #################### Wandb ####################
 
@@ -71,6 +72,67 @@ tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**en
 
 # import wandb
 # wandb.init(project="l5kit2", reinit = True)
+
+class TorchGNCNN(TorchModelV2, nn.Module):
+    """
+    Simple Convolution agent that calculates the required linear output layer
+    """
+
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+
+        # raise ValueError(obs_space.shape)
+        self._num_objects = obs_space.shape[2] # num_of_channels of input, size x size x channels
+        assert self._num_objects < 15, f'wrong shape: {obs_space.shape}'
+        self._num_actions = num_outputs
+        self._feature_dim = model_config["custom_model_config"]['feature_dim']
+        assert obs_space.shape[0] > self._num_objects, str(obs_space.shape) + '!=  (size, size, # channels)'
+
+        self.network = nn.Sequential(
+            nn.Conv2d(7, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False),
+            nn.GroupNorm(4, 64),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 32, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False),
+            nn.GroupNorm(2, 32),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Flatten(),
+            nn.Linear(in_features=1568, out_features=self._feature_dim),
+        )
+
+        self._actor_head = nn.Sequential(
+            nn.Linear(self._feature_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, self._num_actions),
+        )
+
+        self._critic_head = nn.Sequential(
+            nn.Linear(self._feature_dim, 1),
+        )
+
+# <<<<<<< HEAD
+#     def forward(self, input_dict, state, seq_lens):
+#         obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # input_dict['obs'].shape = [B, size, size, # channels] => obs_transformed.shape = [B, # channels, size, size]
+#         assert input_dict['obs'].shape[3] < input_dict['obs'].shape[2] , \
+#             str(input_dict['obs'].shape) + ' != (_ ,size,size,n_channels),  obs_transformed: ' + str(obs_transformed.shape)
+#         network_output = self.network(obs_transformed) #  [B, # channels, size, size]
+# =======
+    def forward(self, input_dict, state, seq_lens): # from dataloader? get 32, 112, 112, 7
+        # obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # 32 x 112 x 112 x 7 [B, size, size, channels]
+        obs_transformed = input_dict['obs'].permute(0, 3, 1, 2) # [B, C, W, H] -> [B, W, H, C]
+        # print('forward', obs_transformed.shape)
+        network_output = self.network(obs_transformed)
+# >>>>>>> 82fd9a0ee83cd280c7d1bcc9c254b002f5a103b1
+        value = self._critic_head(network_output)
+        self._value = value.reshape(-1)
+        logits = self._actor_head(network_output)
+        return logits, state
+
+    def value_function(self):
+        return self._value
+ModelCatalog.register_custom_model("GN_CNN_torch_model", TorchGNCNN)
 
 #################### Train ####################
 import ray
@@ -91,19 +153,19 @@ config_param_space = {
     "num_gpus": 1,
     "num_workers": 8,
     "num_envs_per_worker": train_envs,
-    # "model": {
-    #     "custom_model": "GN_CNN_torch_model",
-    #     "custom_model_config": {'feature_dim':128},
-    # },
-    
-    'model' : {
-            # "dim": 84,
-            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-            # "conv_activation": "relu",
-            "post_fcnet_hiddens": [256],
-            "post_fcnet_activation": "relu",
-            "vf_share_layers": False,   
+    "model": {
+        "custom_model": "GN_CNN_torch_model",
+        "custom_model_config": {'feature_dim':128},
     },
+    
+    # 'model' : {
+    #         # "dim": 84,
+    #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+    #         # "conv_activation": "relu",
+    #         "post_fcnet_hiddens": [256],
+    #         "post_fcnet_activation": "relu",
+    #         "vf_share_layers": False,   
+    # },
     
     '_disable_preprocessor_api': True,
      "eager_tracing": True,

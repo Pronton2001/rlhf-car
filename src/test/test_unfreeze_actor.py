@@ -71,7 +71,7 @@ train_envs = 4
 
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/home/pronton/ray_results/debug_resnet50_nonfreeze_actorNet' + date
+ray_result_logdir = '/home/pronton/ray_results/debug_restnet50_tanh_nonfreeze_actorNet' + date
 # ray_result_logdir = '/home/pronton/ray_results/debug_simple_cnn_nonfreeze_actorNet' + date
 
 # lr = 3e-3
@@ -83,8 +83,8 @@ config_param_space = {
     "framework": "torch",
     "num_gpus": 1,
     "num_workers": 4,
-    'grad_clip': 5.0,
-    'kl_coeff': 0.01,
+    # 'grad_clip': 5.0,
+    # 'kl_coeff': 0.01,
     "num_envs_per_worker": train_envs, #8 * 32
     'disable_env_checking':True,
     # "model": {
@@ -104,8 +104,8 @@ config_param_space = {
                     'freeze_actor': False, # only true when actor_net is restnet50 (loaded from resnet50 pretrained)
                     # 'non_kin_rescale': non_kin_rescale,
                     'n_channels':n_channels,
-                    'actor_net': 'simple_cnn', # resnet50
-                    'critic_net': 'simple_cnn', # resnet50
+                    'actor_net': 'resnet50', # resnet50
+                    'critic_net': 'resnet50', # resnet50
                     },
             },
     '_disable_preprocessor_api': True,
@@ -118,12 +118,12 @@ config_param_space = {
          [1e6, lr_start],
          [2e6, lr_end],
      ],
-    'train_batch_size': 8000, #2048,# 8000 
-    'sgd_minibatch_size': 64, #512, #2048
-    'num_sgd_iter': 10,#10,#16,
+    'train_batch_size': 2048, #8000,# 8000 
+    'sgd_minibatch_size': 64, #2048, #2048
+    'num_sgd_iter': 16,#10,#16,
     'seed': 42,
-    # 'batch_mode': 'truncate_episodes',
-    # "rollout_fragment_length": 32,
+    'batch_mode': 'truncate_episodes',
+    "rollout_fragment_length": 32,
     'gamma': 0.8,    
 }
 
