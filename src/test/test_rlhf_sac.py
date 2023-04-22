@@ -106,7 +106,7 @@ config_param_space = {
         'capacity': int(1e5), #int(1e5)
         "worker_side_prioritization": True,
     },
-    'num_steps_sampled_before_learning_starts': 2048, # 8000,
+    'num_steps_sampled_before_learning_starts': 32,#2048, # 8000,
     
     'target_entropy': 'auto',
 #     "model": {
@@ -132,12 +132,12 @@ config_param_space = {
     'seed': 42,
     'batch_mode': 'truncate_episodes',
     "rollout_fragment_length": 1,
-    'train_batch_size': 256, # 2048
+    'train_batch_size': 16, # 2048
     'training_intensity' : 32, # (4x 'natural' value = 8) 'natural value = train_batch_size / (rollout_fragment_length x num_workers x num_envs_per_worker) = 256 / 1x 8 x 4 = 8
     'gamma': 0.8,
     'twin_q' : True,
     "lr": 3e-4,
-    "min_sample_timesteps_per_iteration": 2048, # 8000
+    "min_sample_timesteps_per_iteration": 32, #2048, # 8000
 }
 
 # result_grid = tune.Tuner(
@@ -161,8 +161,11 @@ config_param_space = {
 #     path=ray_result_logdir, resume_errored = True
 # )
 # tuner.fit()
+checkpoint_path = '/home/pronton/ray_results/31-12-2022_07-53-04(SAC ~-30)/SAC/SAC_L5-CLE-V1_7bae1_00000_0_2022-12-31_00-53-04/checkpoint_000360'
 from src.customModel.customSACTrainer import KLSAC
 model = KLSAC(config=config_param_space, env='L5-CLE-V1')
+model.restore(checkpoint_path)
+# algo = KLSAC(config=config_param_space, env='L5-CLE-V1')
 
 from ray.tune.logger import pretty_print
 for i in range(10000):

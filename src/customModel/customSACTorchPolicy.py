@@ -43,11 +43,15 @@ from ray.rllib.utils.typing import (
     TensorType,
     AlgorithmConfigDict,
 )
+
+from src.constant import SRC_PATH
 torch, nn = try_import_torch()
 F = nn.functional
 
 logger = logging.getLogger(__name__)
 
+
+logging.basicConfig(filename=SRC_PATH + 'src/log/info.log', level=logging.DEBUG, filemode='w')
 
 def _get_dist_class(
     policy: Policy, config: AlgorithmConfigDict, action_space: gym.spaces.Space
@@ -287,6 +291,7 @@ def actor_critic_loss(
         q_tp1_best_masked = (1.0 - train_batch[SampleBatch.DONES].float()) * q_tp1_best
 
     # compute RHS of bellman equation
+    logging.debug(f'loss reward: {train_batch[SampleBatch.REWARDS]}')
     q_t_selected_target = (
         train_batch[SampleBatch.REWARDS]
         + (policy.config["gamma"] ** policy.config["n_step"]) * q_tp1_best_masked
@@ -593,8 +598,8 @@ def rllib_model():
 _, pretrained_sac_model = rllib_model()
 
 pretrained_policy = pretrained_sac_model.get_policy()
-device = next(pretrained_policy.model.parameters()).device
-print('sac policy device:', device)
+# device = next(pretrained_policy.model.parameters()).device
+# logging.debug(f'>>>>>>>>>>>>>>>>>>>>..pretrained sac policy device:{device}')
 
 import numpy as np
 from ray.rllib.models.torch.torch_distributions import TorchDiagGaussian
@@ -608,36 +613,53 @@ def custom_postprocess_trajectory(policy: Policy,
     episode: Optional[Episode] = None,
 ) -> SampleBatch:
     # device = pretrained_sac_model()
+    logging.debug('somessssssssssssssssss')
     # change reward here
-    device = next(pretrained_policy.model.parameters()).device
+    # device = next(pretrained_policy.model.parameters()).device
+    # logging.debug(f'>>>>>>>>>>>>>>>>>>>>..pretrained sac policy device:{device}')
+    # device = next(policy.model.parameters()).device
+    # logging.debug(f'>>>>>>>>>>>>>>>>>>>>.training sac policy device: {device}')
+    # device = 'cuda'
     obs = sample_batch[SampleBatch.CUR_OBS]
     if type(obs) == Dict:
-        obs = {k: torch.as_tensor(v).to(device) for k, v in sample_batch[SampleBatch.CUR_OBS].items()}
+        obs = {k: torch.as_tensor(v) for k, v in sample_batch[SampleBatch.CUR_OBS].items()}
     elif type(obs) == np.ndarray:
-        obs = torch.as_tensor(obs).to(device)
+        obs = torch.as_tensor(obs)
     assert obs.shape[1:] == (84,84,7), f'{obs.shape[1:]} != (B, 84,84,7)'
     pretrained_logits = pretrained_policy.compute_actions_from_input_dict({'obs': obs.view(-1, raster_size, raster_size, n_channels)})[2]['action_dist_inputs']
     assert pretrained_logits.shape[1] == 6, 'Not (B, 6)'
 
     # compute 2 action dist
-    pretrained_action_dist = pretrained_policy.dist_class(torch.as_tensor(pretrained_logits).to(device), pretrained_policy.model)
-    sac_action_dist =policy.dist_class(torch.as_tensor(sample_batch[SampleBatch.ACTION_DIST_INPUTS]).to(device), policy.model)
+    logging.debug(f'pretrain action logits: {pretrained_logits}, device: {torch.as_tensor(pretrained_logits).device}')
+    logging.debug(f'training action logits: {sample_batch[SampleBatch.ACTION_DIST_INPUTS]}, device: {torch.as_tensor(sample_batch[SampleBatch.ACTION_DIST_INPUTS]).device}')
+    logging.debug(f'-----------------------')
+    
+    pretrained_action_dist = pretrained_policy.dist_class(torch.as_tensor(pretrained_logits), pretrained_policy.model)
+    sac_action_dist =policy.dist_class(torch.as_tensor(sample_batch[SampleBatch.ACTION_DIST_INPUTS]), policy.model)
 
     # compute kl div
     # kl_div = sac_action_dist.kl(pretrained_action_dist)
     pretrained_action_sample = pretrained_action_dist.deterministic_sample()
     pretrained_logp =pretrained_action_dist.logp(pretrained_action_sample)
-
     sac_action_sample = sac_action_dist.deterministic_sample()
     sac_logp =sac_action_dist.logp(sac_action_sample)
 
-    kl_div =(sac_logp- pretrained_logp)
-    print('kl_div', kl_div)
+    logging.debug(f'pretrain action deterministic sample: {pretrained_action_sample}')
+    logging.debug(f'training action deterministic sample: {sac_action_sample}')
+    logging.debug(f'-----------------------')
 
-    print(f'reward before: {sample_batch[SampleBatch.REWARDS]},\
-          shape: {sample_batch[SampleBatch.REWARDS].shape}')
+    logging.debug(f'pretrain action logp sample: {pretrained_logp}')
+    logging.debug(f'training action logp sample: {sac_logp}')
+    logging.debug(f'-----------------------')
+
+
+    kl_div =(sac_logp- pretrained_logp)
+    # print('kl_div', kl_div)
+
+    # print(f'reward before: {sample_batch[SampleBatch.REWARDS]},\
+    #       shape: {sample_batch[SampleBatch.REWARDS].shape}')
     # logging.debug(f'reward shape{sample_batch[SampleBatch.REWARDS].shape}')
-    # logging.debug(f'kl shape{kl_div.shape}, kl_div: {kl_div}')
+    logging.debug(f'kl_div: {kl_div}')
     kl_div = kl_div.cpu().numpy()
     # self.kl_il_rl = kl_div.mean()
     #logging.debug('kl div:', kl_div* self.kl_div_weight)
@@ -646,8 +668,8 @@ def custom_postprocess_trajectory(policy: Policy,
     # print( sample_batch[SampleBatch.REWARDS].device)
     # self.regularized_rewards= sample_batch[SampleBatch.REWARDS]
 
-    print(f'reward after: {sample_batch[SampleBatch.REWARDS]},\
-          shape: {sample_batch[SampleBatch.REWARDS].shape}')
+    # print(f'reward after: {sample_batch[SampleBatch.REWARDS]},\
+    #       shape: {sample_batch[SampleBatch.REWARDS].shape}')
 
     # if type(logits) == Dict: 
     #     pred_x = logits['positions'][:,0, 0].view(-1,1)# take the first action 
@@ -722,6 +744,8 @@ def custom_postprocess_trajectory(policy: Policy,
 
         # print('----------------')
     # sample_batch[SampleBatch.REWARDS] = 
+
+    logging.debug('somessssssssssssssssss')
     return postprocess_trajectory(policy, sample_batch, other_agent_batches, episode = None,)
 
 # Build a child class of `TorchPolicy`, given the custom functions defined
