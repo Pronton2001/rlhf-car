@@ -1,5 +1,5 @@
 import os
-from src.customModel.customModel import TorchAttentionModel3, TorchAttentionModel4
+from src.customModel.customModel import TorchAttentionModel3, TorchAttentionModel4SAC, TorchVectorQNet, TorchVectorPolicyNet
 
 from src.constant import SRC_PATH
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
@@ -26,7 +26,7 @@ import ray
 import pytz
 from ray import tune
 
-ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode=False)
+ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode=True)
 
 
 from l5kit.configs import load_config_data
@@ -45,7 +45,7 @@ cfg = load_config_data(env_config_path)
 # print(cfg['model_params']['future_num_frames'], cfg['model_params']['history_num_frames'], n_channels)
 from ray import tune
 from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch
-train_eps_length = 200
+train_eps_length = 32
 train_sim_cfg = SimulationConfigGym()
 train_sim_cfg.num_simulation_steps = train_eps_length + 1
 
@@ -55,7 +55,9 @@ env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cf
 
 tune.register_env("L5-CLE-V2", lambda config: L5Env2(**env_kwargs))
 ModelCatalog.register_custom_model( "TorchAttentionModel3", TorchAttentionModel3)
-ModelCatalog.register_custom_model( "TorchAttentionModel4", TorchAttentionModel4)
+ModelCatalog.register_custom_model( "TorchAttentionModel4", TorchAttentionModel4SAC)
+ModelCatalog.register_custom_model( "TorchVectorQNet", TorchVectorQNet)
+ModelCatalog.register_custom_model( "TorchVectorPolicyNet", TorchVectorPolicyNet)
 # tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapper(env = L5Env(**env_kwargs), \
 #                                                            raster_size= cfg['raster_params']['raster_size'][0], \
 # #                                                            n_channels = n_channels))
@@ -83,56 +85,85 @@ import ray
 from ray import air, tune
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/home/pronton/ray_results/debug_vector_ppo_separated_kin_hist3_200scences_gamma99' + date
+ray_result_logdir = '/home/pronton/ray_results/debug_vector_sac_test_q_model' + date
 
 train_envs = 4
 lr = 3e-4
 lr_start = 3e-5
 lr_end = 3e-6
-lr_time = int(4e6)
-
 config_param_space = {
     "env": "L5-CLE-V2",
     "framework": "torch",
     "num_gpus": 1,
-    "num_workers": 8,
+    "num_workers": 8, # 63
     "num_envs_per_worker": train_envs,
-    "model": {
-        "custom_model": "TorchAttentionModel4",
-        "custom_model_config": {'cfg':cfg,
-                                'freeze_actor': False,
-                                'shared_feature_extractor': False,
-                                },
+    'q_model_config':{
+        'custom_model': 'TorchVectorQNet',
+        'custom_model_config': {'cfg': cfg,}
     },
-    
-    # 'model' : {
-    #         # "dim": 84,
+    'policy_model_config':{
+        'custom_model': 'TorchVectorPolicyNet',
+        'custom_model_config': {'cfg': cfg,}
+    },
+
+    # 'q_model_config' : {
+    #         # "dim": 112,
     #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
     #         # "conv_activation": "relu",
     #         "post_fcnet_hiddens": [256],
     #         "post_fcnet_activation": "relu",
-    #         "vf_share_layers": False,   
-    # },
+    #     },
+    # 'policy_model_config' : {
+    #         # "dim": 112,
+    #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+    #         # "conv_activation": "relu",
+    #         "post_fcnet_hiddens": [256],
+    #         "post_fcnet_activation": "relu",
+    #     },
+    'disable_env_checking': True,
+    'tau': 0.005,
+    'target_network_update_freq': 1,
+    'replay_buffer_config':{
+        'type': 'MultiAgentPrioritizedReplayBuffer',
+        'capacity': int(1e5), #int(1e5)
+        "worker_side_prioritization": True,
+    },
+    'num_steps_sampled_before_learning_starts': 1024, #8000
     
+    'target_entropy': 'auto',
+#     "model": {
+#         "custom_model": "GN_CNN_torch_model",
+#         "custom_model_config": {'feature_dim':128},
+#     },
+#     'store_buffer_in_checkpoints': True,
+#     'num_steps_sampled_before_learning_starts': 1024, # 8000,
+    
+#     'target_entropy': 'auto',
+# #     "model": {
+# #         "custom_model": "GN_CNN_torch_model",
+# #         "custom_model_config": {'feature_dim':128},
+# #     },
     '_disable_preprocessor_api': True,
-     "eager_tracing": True,
-     "restart_failed_sub_environments": True,
-    "lr": lr,
+#      "eager_tracing": True,
+#      "restart_failed_sub_environments": True,
+ 
+    # 'train_batch_size': 4000,
+    # 'sgd_minibatch_size': 256,
+    # 'num_sgd_iter': 16,
+    # 'store_buffer_in_checkpoints' : False,
     'seed': 42,
-    "lr_schedule": [
-        [7e5, lr_start],
-        [2e6, lr_end],
-    ],
-    'train_batch_size': 1024, # 8000 
-    'sgd_minibatch_size': 512, #2048
-    'num_sgd_iter': 10,#16,
     'batch_mode': 'truncate_episodes',
-    # "rollout_fragment_length": 32,
-    'gamma': 0.99,    
+    "rollout_fragment_length": 1,
+    'train_batch_size': 256, # 2048
+    'training_intensity' : 32, # (4x 'natural' value = 8) 'natural value = train_batch_size / (rollout_fragment_length x num_workers x num_envs_per_worker) = 256 / 1x 8 x 4 = 8
+    'gamma': 0.8,
+    'twin_q' : True,
+    "lr": 3e-4,
+    "min_sample_timesteps_per_iteration": 1024, # 8000
 }
 
 result_grid = tune.Tuner(
-    "PPO",
+    "SAC",
     run_config=air.RunConfig(
         stop={"episode_reward_mean": 0, 'timesteps_total': int(6e6)},
         local_dir=ray_result_logdir,

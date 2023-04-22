@@ -127,7 +127,7 @@ class KLPPOTorchPolicy(
             elif type(obs) == np.ndarray:
                 obs = torch.as_tensor(obs).to(self.device)
             logits = self.pretrained_policy(obs)
-            print('pretrained device:', self.device)
+            # print('pretrained device:', self.device)
 
             if type(logits) == Dict: # TODO: Change Vectorized output from dict -> numpy.ndarray
                 pred_x = logits['positions'][:,0, 0].view(-1,1)# take the first action 
@@ -187,6 +187,7 @@ class KLPPOTorchPolicy(
             # logging.debug(f'kl shape{kl_div.shape}, kl_div: {kl_div}')
             kl_div = kl_div.cpu().numpy()
             # self.kl_il_rl = kl_div.mean()
+            logging.debug(f'kl_div {kl_div[0]}, shape: {kl_div.shape}')
             #logging.debug('kl div:', kl_div* self.kl_div_weight)
             # self.rs_after = kl_div.cpu().numpy().mean()
             sample_batch[SampleBatch.REWARDS] -=  kl_div* self.kl_div_weight

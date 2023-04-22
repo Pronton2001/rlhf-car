@@ -297,3 +297,19 @@ PointNet can solve:
 max-pooling ->r as a symmetric function
 
 * Tanh, bias is important for model.
+* Download model: 
+wget https://lyft-l5-datasets-public.s3-us-west-2.amazonaws.com/models/planning_models/planning_model_20201208.pt
+wget https://lyft-l5-datasets-public.s3-us-west-2.amazonaws.com/models/urban_driver/OL_HS.pt
+wget https://lyft-l5-datasets-public.s3-us-west-2.amazonaws.com/models/urban_driver/BPTT.pt
+
+* In sac_torch_model
+         if isinstance(model_out, dict) and "obs" in model_out:
+            # Model outs may come as original Tuple observations
+            if isinstance(self.action_model.obs_space, Box):
+                model_out["obs"] = concat_obs_if_necessary(model_out["obs"])
+            return self.action_model(model_out, state_in, seq_lens)
+        else:
+            if isinstance(self.action_model.obs_space, Box):
+                pass 
+                # model_out = concat_obs_if_necessary(model_out)#-------------------------> comment this
+            return self.action_model({"obs": model_out}, state_in, seq_lens)

@@ -12,7 +12,7 @@ import numpy as np
 # os.environ['CUDA_VISIBLE_DEVICES']= '0'
 
 import logging
-logging.basicConfig(filename='src/log/info.log', level=logging.DEBUG, filemode='w')
+logging.basicConfig(filename=SRC_PATH + 'src/log/info2.log', level=logging.DEBUG, filemode='w')
 from ray.rllib.algorithms.sac.sac_torch_model import SACTorchModel
 import gym
 from gym.spaces import Box, Discrete
@@ -212,6 +212,168 @@ class TorchRasterNet2(TorchModelV2, nn.Module): #TODO: recreate rasternet for PP
         # print(ones.device, action.device)
         # output_logits = torch.cat((action, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
         # assert output_logits.shape[1] == 6, f'{output_logits.shape[1]}'
+        value = self._critic_mlp(self._critic_head(obs_transformed))
+        self._value = value.view(-1)
+
+        # return output_logits, state
+        return logits, state
+    def value_function(self):
+        return self._value
+
+def freeze(model):
+    for  name, param in model.named_parameters():
+        param.requires_grad = False
+def freeze_except_last_fc(model):
+    for  name, param in model.named_parameters():
+        if 'model.fc' not in name: 
+                param.requires_grad = False
+        else:
+                param.requires_grad = True
+def freeze_except_last_conv(model):
+    for  name, param in model.named_parameters():
+        if 'model.layer4.2' in name or 'model.fc' in name:
+            param.requires_grad = True
+        else:
+            param.requires_grad = False
+
+def load__model_except_last_fc(model):
+    weights_subset = {}
+    for key, value in model.state_dict().items():
+        if key == 'model.fc.weight':
+            continue
+        elif key == 'model.fc.bias':
+            continue
+        else:
+            weights_subset[key] = value
+    return weights_subset
+
+def load_num_action_model(model, num_output):
+    weights_subset = {}
+    for key, value in model.state_dict().items():
+        if key == 'model.fc.weight':
+            weights_subset[key] = value[:num_output,:]
+        elif key == 'model.fc.bias':
+            weights_subset[key] = value[:num_output]
+        else:
+            weights_subset[key] = value
+    return weights_subset
+class TorchRasterNet3(TorchModelV2, nn.Module): #TODO: recreate rasternet for PPO, check again
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # print('torchrasternet init device', self.device)
+
+        self.log_std_x = -5
+        self.log_std_y = -5
+        self.log_std_yaw = -5
+        # cfg = model_config["custom_model_config"]['cfg'] # TODO: Pass necessary params, not cfg
+        n_channels = model_config["custom_model_config"]['n_channels'] 
+        critic_net = model_config["custom_model_config"]['critic_net']
+        actor_net = model_config["custom_model_config"]['actor_net']
+        # self.non_kin_rescale = model_config["custom_model_config"]['non_kin_rescale'] 
+        future_num_frames = model_config["custom_model_config"]['future_num_frames']
+        freeze_actor = model_config["custom_model_config"]['freeze_actor'] 
+        shared_feature_extractor =  model_config["custom_model_config"]['shared_feature_extractor'] 
+        # d_model = model_config["custom_model_config"]['critic_feature_dim'] 
+
+        # actor_feature_dim = 3 * future_num_frames
+        # actor_feature_dim = num_outputs 
+        # crtitic_feature_dim = 1
+        actor_feature_dim = 128 
+        crtitic_feature_dim = 128
+        if actor_net == 'resnet50':
+            self.pretrained_policy = RasterizedPlanningModelFeature(
+                model_arch="resnet50",
+                num_input_channels=5, # pretrained model input: 5x224x224
+                num_targets=3 * 12, 
+                weights_scaling=[1., 1., 1.],
+                criterion=nn.MSELoss(reduction="none"),)
+            model_path = SRC_PATH + "src/model/planning_model_20201208.pt"
+            self.pretrained_policy.load_state_dict(torch.load(model_path).state_dict())
+            logging.debug('loaded pretrained model')
+
+        self._actor_head =RasterizedPlanningModelFeature(
+            model_arch=actor_net,
+            num_input_channels=n_channels,
+            num_targets= actor_feature_dim , # or same as pretrained_policy to load
+            weights_scaling=[1., 1., 1.],
+            criterion=nn.MSELoss(reduction="none"),)
+
+        if actor_net == 'resnet50':
+            # self._actor_head.load_state_dict(load_num_action_model(self.pretrained_policy, actor_feature_dim))
+            self._actor_head.load_state_dict(load__model_except_last_fc(self.pretrained_policy, actor_feature_dim))
+            # freeze_except_last_conv(self._actor_head)
+            freeze_except_last_fc(self._actor_head)
+            logging.debug('loaded actornet model, freeze except last fc')
+
+        if shared_feature_extractor:
+            self._critic_head = self._actor_head
+        else:
+            self._critic_head =RasterizedPlanningModelFeature(
+                model_arch=critic_net,
+                num_input_channels=n_channels,
+                num_targets=crtitic_feature_dim,  # feature dim of critic
+                weights_scaling=[1., 1., 1.],
+                criterion=nn.MSELoss(reduction="none"),)
+
+        if critic_net == 'resnet50':
+            # self._critic_head.load_state_dict(load_num_action_model(self.pretrained_policy, crtitic_feature_dim))
+            self._critic_head.load_state_dict(load__model_except_last_fc(self.pretrained_policy, crtitic_feature_dim))
+            # freeze_except_last_conv(self._critic_head)
+            freeze_except_last_fc(self._critic_head)
+            logging.debug('loaded critic model, freeze except last fc')
+
+        if freeze_actor:
+            # self._actor_head.load_state_dict(torch.load(model_path).state_dict()) # NOTE: somehow actor_head in cuda device
+            for param in self._actor_head.parameters():
+                param.requires_grad = False
+
+        # device = next(self.pretrained_policy.parameters()).device
+        # logging.debug('>>>>>>>>>>>>>>pretrained device:', device)
+        device = next(self._actor_head.parameters()).device
+        logging.debug(f'>>>>>>>>>>>>>>actor_head device: {device}')
+        device = next(self._critic_head.parameters()).device
+        logging.debug(f'>>>>>>>>>>>>>>critic_head device: {device}')
+    
+        if actor_feature_dim != num_outputs:
+            self._actor_mlp = nn.Sequential(
+                nn.Linear(actor_feature_dim, 256),
+                nn.ReLU(),
+                nn.Linear(256, num_outputs),
+            )
+        else:
+            self._actor_mlp = nn.Sequential()
+        if crtitic_feature_dim != 1:
+            self._critic_mlp = nn.Sequential(
+                # nn.BatchNorm1d(crtitic_feature_dim),
+                # nn.ReLU(),
+                nn.Linear(crtitic_feature_dim, 1)
+            )
+        else:
+            self._critic_mlp = nn.Sequential()
+
+    def forward(self, input_dict, state, seq_lens):
+        obs_transformed = input_dict['obs']
+        # if self.simple_actor:
+        #     logits = self._actor_head(obs_transformed)
+        # else:
+        traj = self._actor_head(obs_transformed)
+
+        logits = self._actor_mlp(traj)
+
+        # batch_size = len(input_dict)
+        # pretrained_logits = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
+        # action = pretrained_logits[:,0,:].view(-1,3)
+
+        # logging.debug(f'predicted actions: {action}, shape: {action.shape}')
+        # action = standard_normalizer(self.non_kin_rescale, action) # take first action
+        # logging.debug(f'rescaled actions: {action}, shape: {action.shape}')
+        # ones = torch.ones(batch_size,1).to(action.device) # 32,
+
+        # logging.debug(ones.device, action.device)
+        # logits = torch.cat((action, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
+        # assert logits.shape[1] == 6, f'{logits.shape[1]}'
         value = self._critic_mlp(self._critic_head(obs_transformed))
         self._value = value.view(-1)
 
@@ -810,6 +972,341 @@ class TorchAttentionModel3(TorchModelV2, nn.Module):
         self._value = value.view(-1)
 
         return output_logits, state
+    def value_function(self):
+        return self._value
+class AssembleModel(nn.Module):
+    def __init__(self, cfg, num_outputs):
+        super(AssembleModel, self).__init__()
+        self.attention = CustomVectorizedModel(
+            history_num_frames_ego=cfg["model_params"]["history_num_frames_ego"],
+            history_num_frames_agents=cfg["model_params"]["history_num_frames_agents"],
+            global_head_dropout=cfg["model_params"]["global_head_dropout"],
+            disable_other_agents=cfg["model_params"]["disable_other_agents"],
+            disable_map=cfg["model_params"]["disable_map"],
+            disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
+
+        d_model = 256
+        if num_outputs > 1: # actor
+            self.fc = MLP(d_model, d_model , output_dim = num_outputs, num_layers=1)
+        else:
+            self.fc = MLP(d_model, d_model , output_dim= 1, num_layers=1)
+
+    def forward(self, x):
+        return self.fc(self.attention(x))
+
+class TorchAttentionModel4SAC(SACTorchModel):
+    """
+    Attention Model agent
+    """
+
+    def __init__(
+        self,
+        obs_space: gym.spaces.Space,
+        action_space: gym.spaces.Space,
+        num_outputs: Optional[int],
+        model_config: ModelConfigDict,
+        name: str,
+        policy_model_config: ModelConfigDict = None,
+        q_model_config: ModelConfigDict = None,
+        twin_q: bool = True,
+        initial_alpha: float = 1.0,
+        target_entropy: Optional[float] = None,
+    ):
+    # def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+    #     super().__init__(obs_space, action_space, num_outputs, model_config, name)
+    #     nn.Module.__init__(self)
+
+        self.cfg = model_config["custom_model_config"]['cfg']
+        weights_scaling = [1.0, 1.0, 1.0]
+
+        self.log_std_x = -5
+        self.log_std_y = -5
+        self.log_std_yaw = -5
+
+        # self._num_predicted_frames = self.cfg["model_params"]["future_num_frames"]
+        # self._num_predicted_frames = 1
+        self._num_predicted_params = len(weights_scaling) #6
+        # weights_scaling_critic = [1.0]
+        # actor_feature_dim = 128 
+        # crtitic_feature_dim = 128
+
+        # freeze_actor = model_config["custom_model_config"]['freeze_actor'] 
+        # shared_feature_extractor =  model_config["custom_model_config"]['shared_feature_extractor'] 
+
+        # self.pretrained_policy = VectorizedModel(
+        #     history_num_frames_ego=self.cfg["model_params"]["history_num_frames_ego"],
+        #     history_num_frames_agents=self.cfg["model_params"]["history_num_frames_agents"],
+        #     num_targets=self._num_predicted_params * self._num_predicted_frames, # N (X,Y,Yaw) 36
+        #     weights_scaling=weights_scaling, # 3
+        #     criterion=nn.L1Loss(reduction="none"),
+        #     global_head_dropout=self.cfg["model_params"]["global_head_dropout"],
+        #     disable_other_agents=self.cfg["model_params"]["disable_other_agents"],
+        #     disable_map=self.cfg["model_params"]["disable_map"],
+        #     disable_lane_boundaries=self.cfg["model_params"]["disable_lane_boundaries"])
+        
+        # self._actor_head = CustomVectorizedModel(
+        #     history_num_frames_ego=self.cfg["model_params"]["history_num_frames_ego"],
+        #     history_num_frames_agents=self.cfg["model_params"]["history_num_frames_agents"],
+        #     global_head_dropout=self.cfg["model_params"]["global_head_dropout"],
+        #     disable_other_agents=self.cfg["model_params"]["disable_other_agents"],
+        #     disable_map=self.cfg["model_params"]["disable_map"],
+        #     disable_lane_boundaries=self.cfg["model_params"]["disable_lane_boundaries"])
+
+        # self._actor_head = AssembleModel(self.cfg, num_outputs)
+        # self._critic_head = AssembleModel(self.cfg, 1)
+        # if shared_feature_extractor:
+        #     self._critic_head = self._actor_head
+        # else:
+        #     self._critic_head = CustomVectorizedModel(
+        #         history_num_frames_ego=self.cfg["model_params"]["history_num_frames_ego"],
+        #         history_num_frames_agents=self.cfg["model_params"]["history_num_frames_agents"],
+        #         global_head_dropout=self.cfg["model_params"]["global_head_dropout"],
+        #         disable_other_agents=self.cfg["model_params"]["disable_other_agents"],
+        #         disable_map=self.cfg["model_params"]["disable_map"],
+        #         disable_lane_boundaries=self.cfg["model_params"]["disable_lane_boundaries"])
+
+        
+        d_model = 256
+
+        # self._actor_mlp = MLP(d_model, d_model * 4, num_outputs, num_layers=3) # similar to pretrained
+        # self._actor_mlp = MLP(d_model, d_model , output_dim = num_outputs, num_layers=1)
+        # self._critic_mlp = MLP(d_model, d_model , output_dim= 1, num_layers=1)
+
+#         model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
+        # self._critic_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
+        # if freeze_actor:
+        #     model_path = "/home/pronton/rlhf-car/src/model/OL_HS.pt"
+        #     self._actor_head.load_state_dict(torch.load(model_path).state_dict())
+        #     for param in self._actor_head.parameters():
+        #         param.requires_grad = False
+
+        # self._critic_head.load_state_dict()
+        # self.outputs = nn.ModuleList()
+        # for i in range(action_space.shape[0]):
+        #     self.outputs.append(nn.Linear(num_outputs, 1)) # 6x
+        super(TorchAttentionModel4SAC, self).__init__(
+            obs_space, action_space, num_outputs, model_config, name, policy_model_config, q_model_config, twin_q, initial_alpha, target_entropy
+        )
+        self.policy_net = TorchVectorPolicyNet(obs_space, action_space, num_outputs, model_config, name)
+        self.q_net = TorchVectorQNet(obs_space, action_space, num_outputs, model_config, name)
+
+    def build_policy_model(self, obs_space, num_outputs, policy_model_config, name):
+        """Builds the policy model used by this SAC.
+
+        Override this method in a sub-class of SACTFModel to implement your
+        own policy net. Alternatively, simply set `custom_model` within the
+        top level SAC `policy_model` config key to make this default
+        implementation of `build_policy_model` use your custom policy network.
+
+        Returns:
+            TorchModelV2: The TorchModelV2 policy sub-model.
+        """
+        # self._actor_head = CustomVectorizedModel(
+        #     history_num_frames_ego=cfg["model_params"]["history_num_frames_ego"],
+        #     history_num_frames_agents=cfg["model_params"]["history_num_frames_agents"],
+        #     global_head_dropout=cfg["model_params"]["global_head_dropout"],
+        #     disable_other_agents=cfg["model_params"]["disable_other_agents"],
+        #     disable_map=cfg["model_params"]["disable_map"],
+        #     disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
+        # d_model = 256
+        # self._actor_mlp = MLP(d_model, d_model , output_dim = num_outputs, num_layers=1)
+        
+        return self.policy_net
+
+        
+    def forward(self, input_dict, state, seq_lens):
+        obs_transformed = input_dict['obs']
+        # logging.debug('obs forward:'+ str(obs_transformed))
+        actor_feature_value, attns = self._actor_head(obs_transformed)
+        logits = self._actor_mlp(actor_feature_value)
+
+        critic_feature_value, attns = self._critic_head(obs_transformed)
+        value = self._critic_mlp(critic_feature_value)
+        self._value = value.view(-1)
+
+        return logits, state
+    def value_function(self):
+        return self._value
+
+class TorchVectorPolicyNet(TorchModelV2, nn.Module):
+    """
+    RasterNet Model agent
+    """
+
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        cfg = model_config["custom_model_config"]['cfg'] # TODO: Pass necessary params, not cfg
+
+        self.attention = CustomVectorizedModel(
+            history_num_frames_ego=cfg["model_params"]["history_num_frames_ego"],
+            history_num_frames_agents=cfg["model_params"]["history_num_frames_agents"],
+            global_head_dropout=cfg["model_params"]["global_head_dropout"],
+            disable_other_agents=cfg["model_params"]["disable_other_agents"],
+            disable_map=cfg["model_params"]["disable_map"],
+            disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
+
+        d_model = 256
+        # assert num_outputs  == 1, f'wrong {num_outputs}'
+        # if num_outputs > 1: # actor
+        #     self.fc = MLP(d_model, d_model , output_dim = num_outputs, num_layers=1)
+        # else:
+        logging.debug(f'num_outputs in policy:{num_outputs}')
+        self.fc = MLP(d_model, d_model , output_dim= num_outputs, num_layers=1)
+
+    def forward(self, input_dict, state, seq_lens):
+        # logging.debug(f'policy input: {input_dict["obs"]}')
+        # logging.debug(f'policy input: {input_dict["action"]}')
+        obs = input_dict['obs']
+        # logging.debug(f'policy input types: {[v.dtype for v in input_dict["obs"].values()]}')
+        #TODO: Why all type is torch.float32??? How to convert to bool, int as in l5env2, Why PPO can run?
+        features, attns = self.attention(obs)
+        return self.fc(features), state
+
+from ray.rllib.utils.spaces.space_utils import flatten_space
+class TorchVectorQNet(TorchModelV2, nn.Module):
+    """
+    RasterNet Model agent
+    """
+
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        # self.original_space = (
+        #     obs_space.original_space
+        #     if hasattr(obs_space, "original_space")
+        #     else obs_space
+        # )
+
+        # self.processed_obs_space = (
+        #     self.original_space
+        #     if model_config.get("_disable_preprocessor_api")
+        #     else obs_space
+        # )
+        # self.flattened_input_space = flatten_space(self.original_space)
+        # logging.debug(f'flattened_input_space: {self.flattened_input_space}')
+        # for i, component in enumerate(self.flattened_input_space):
+        #     print(component.shape)
+        # logging.debug(f'obs_space: {obs_space[0]}, action_space: {obs_space[1]}')
+        # logging.debug(f'action_space: {action_space}')
+
+        cfg = model_config["custom_model_config"]['cfg'] # TODO: Pass necessary params, not cfg
+
+        self.attention = CustomVectorizedModel(
+            history_num_frames_ego=cfg["model_params"]["history_num_frames_ego"],
+            history_num_frames_agents=cfg["model_params"]["history_num_frames_agents"],
+            global_head_dropout=cfg["model_params"]["global_head_dropout"],
+            disable_other_agents=cfg["model_params"]["disable_other_agents"],
+            disable_map=cfg["model_params"]["disable_map"],
+            disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
+        
+        self.action_dim = np.product(action_space.shape)
+        # action_outs = 2 * self.action_dim
+        q_outs = 1
+        d_model = 256
+        self.q_net = MLP(self.action_dim + d_model, d_model, output_dim = q_outs , num_layers=1)
+
+
+    def forward(self, input_dict, state, seq_lens):
+        # TODO: test input shape
+        # logging.debug(f"q obs input_dict: {input_dict['obs'][0]}")
+        # logging.debug(f"q action input_dict: {input_dict['obs'][1]}")
+        obs,action = input_dict['obs']
+        features, attns = self.attention(obs)
+        logging.debug(f"features dim: {features.shape}")
+        logging.debug(f"action dim: {action.shape}")
+        return self.q_net(torch.cat((features, action), dim=1)), state
+
+class TorchAttentionModel4(TorchModelV2, nn.Module):
+    """
+    Attention Model agent
+    """
+
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+
+        cfg = model_config["custom_model_config"]['cfg']
+        weights_scaling = [1.0, 1.0, 1.0]
+
+        self.log_std_x = -5
+        self.log_std_y = -5
+        self.log_std_yaw = -5
+
+        self._num_predicted_frames = cfg["model_params"]["future_num_frames"]
+        # self._num_predicted_frames = 1
+        self._num_predicted_params = len(weights_scaling) #6
+        weights_scaling_critic = [1.0]
+        actor_feature_dim = 128 
+        crtitic_feature_dim = 128
+
+        freeze_actor = model_config["custom_model_config"]['freeze_actor'] 
+        shared_feature_extractor =  model_config["custom_model_config"]['shared_feature_extractor'] 
+
+        self.pretrained_policy = VectorizedModel(
+            history_num_frames_ego=cfg["model_params"]["history_num_frames_ego"],
+            history_num_frames_agents=cfg["model_params"]["history_num_frames_agents"],
+            num_targets=self._num_predicted_params * self._num_predicted_frames, # N (X,Y,Yaw) 36
+            weights_scaling=weights_scaling, # 3
+            criterion=nn.L1Loss(reduction="none"),
+            global_head_dropout=cfg["model_params"]["global_head_dropout"],
+            disable_other_agents=cfg["model_params"]["disable_other_agents"],
+            disable_map=cfg["model_params"]["disable_map"],
+            disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
+        
+        self._actor_head = CustomVectorizedModel(
+            history_num_frames_ego=cfg["model_params"]["history_num_frames_ego"],
+            history_num_frames_agents=cfg["model_params"]["history_num_frames_agents"],
+            global_head_dropout=cfg["model_params"]["global_head_dropout"],
+            disable_other_agents=cfg["model_params"]["disable_other_agents"],
+            disable_map=cfg["model_params"]["disable_map"],
+            disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
+
+        if shared_feature_extractor:
+            self._critic_head = self._actor_head
+        else:
+            self._critic_head = CustomVectorizedModel(
+                history_num_frames_ego=cfg["model_params"]["history_num_frames_ego"],
+                history_num_frames_agents=cfg["model_params"]["history_num_frames_agents"],
+                global_head_dropout=cfg["model_params"]["global_head_dropout"],
+                disable_other_agents=cfg["model_params"]["disable_other_agents"],
+                disable_map=cfg["model_params"]["disable_map"],
+                disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
+
+        d_model = 256
+
+        # self._actor_mlp = MLP(d_model, d_model * 4, num_outputs, num_layers=3) # similar to pretrained
+        self._actor_mlp = MLP(d_model, d_model , output_dim = num_outputs, num_layers=1)
+        self._critic_mlp = MLP(d_model, d_model , output_dim= 1, num_layers=1)
+
+#         model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
+        # self._critic_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
+        if freeze_actor:
+            model_path = "/home/pronton/rlhf-car/src/model/OL_HS.pt"
+            self._actor_head.load_state_dict(torch.load(model_path).state_dict())
+            for param in self._actor_head.parameters():
+                param.requires_grad = False
+
+        # self._critic_head.load_state_dict()
+        # self.outputs = nn.ModuleList()
+        # for i in range(action_space.shape[0]):
+        #     self.outputs.append(nn.Linear(num_outputs, 1)) # 6x
+        
+    def forward(self, input_dict, state, seq_lens):
+        obs_transformed = input_dict['obs']
+        # logging.debug('obs forward:'+ str(obs_transformed))
+        actor_feature_value, attns = self._actor_head(obs_transformed)
+        logits = self._actor_mlp(actor_feature_value)
+
+        critic_feature_value, attns = self._critic_head(obs_transformed)
+        value = self._critic_mlp(critic_feature_value)
+        self._value = value.view(-1)
+
+        return logits, state
     def value_function(self):
         return self._value
 if __name__ == '__main__':

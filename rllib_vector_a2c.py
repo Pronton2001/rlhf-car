@@ -26,7 +26,7 @@ import ray
 import pytz
 from ray import tune
 
-ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode=False)
+ray.init(num_cpus=33, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode=False)
 
 
 from l5kit.configs import load_config_data
@@ -45,7 +45,7 @@ cfg = load_config_data(env_config_path)
 # print(cfg['model_params']['future_num_frames'], cfg['model_params']['history_num_frames'], n_channels)
 from ray import tune
 from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch
-train_eps_length = 200
+train_eps_length = 32
 train_sim_cfg = SimulationConfigGym()
 train_sim_cfg.num_simulation_steps = train_eps_length + 1
 
@@ -83,19 +83,19 @@ import ray
 from ray import air, tune
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/home/pronton/ray_results/debug_vector_ppo_separated_kin_hist3_200scences_gamma99' + date
+ray_result_logdir = '/home/pronton/ray_results/debug_vector/a2c_separated_kin_hist3' + date
 
 train_envs = 4
-lr = 3e-4
-lr_start = 3e-5
-lr_end = 3e-6
+lr = 3e-5
+lr_start = 3e-6
+lr_end = 3e-7
 lr_time = int(4e6)
 
 config_param_space = {
     "env": "L5-CLE-V2",
     "framework": "torch",
     "num_gpus": 1,
-    "num_workers": 8,
+    "num_workers": 32,
     "num_envs_per_worker": train_envs,
     "model": {
         "custom_model": "TorchAttentionModel4",
@@ -120,19 +120,23 @@ config_param_space = {
     "lr": lr,
     'seed': 42,
     "lr_schedule": [
-        [7e5, lr_start],
-        [2e6, lr_end],
+        # [0, lr],
+        # [1e6, lr_start],
+        # [2e6, lr_end],
+        [0, 0.00005],
+        [20000000, 0.000000000001],
     ],
-    'train_batch_size': 1024, # 8000 
-    'sgd_minibatch_size': 512, #2048
-    'num_sgd_iter': 10,#16,
-    'batch_mode': 'truncate_episodes',
+    
+    'train_batch_size': 500, # 8000 
+    # 'sgd_minibatch_size': 512, #2048
+    # 'num_sgd_iter': 10,#16,
+    # 'batch_mode': 'truncate_episodes',
     # "rollout_fragment_length": 32,
-    'gamma': 0.99,    
+    'gamma': 0.8,    
 }
 
 result_grid = tune.Tuner(
-    "PPO",
+    "A2C",
     run_config=air.RunConfig(
         stop={"episode_reward_mean": 0, 'timesteps_total': int(6e6)},
         local_dir=ray_result_logdir,
