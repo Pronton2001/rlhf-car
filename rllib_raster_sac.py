@@ -38,11 +38,12 @@ from l5kit.configs import load_config_data
 
 # get environment config
 env_config_path = SRC_PATH + 'src/configs/gym_config84.yaml'
+# env_config_path = SRC_PATH + 'src/configs/gym_config.yaml'
 cfg = load_config_data(env_config_path)
-ray.init(num_cpus=3, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9)
+ray.init(num_cpus=64, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9, local_mode= False)
 
 
-from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch
+from src.customEnv.wrapper import L5EnvRasterizerTorch, L5EnvWrapperTorch
 from ray import tune
 train_eps_length = 32
 train_sim_cfg = SimulationConfigGym()
@@ -51,13 +52,16 @@ train_sim_cfg.num_simulation_steps = train_eps_length + 1
 env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cfg': train_sim_cfg}
 
 tune.register_env("L5-CLE-V0", lambda config: L5Env(**env_kwargs))
-# tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapper(env = L5Env(**env_kwargs), \
-#                                                            raster_size= cfg['raster_params']['raster_size'][0], \
-#                                                            n_channels = 7))
 tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
                                                            raster_size= cfg['raster_params']['raster_size'][0], \
                                                            n_channels = 7))
+# tune.register_env("L5-CLE-V1", lambda config: L5EnvRasterizerTorch(env = L5Env(**env_kwargs), \
+#                                                            raster_size= cfg['raster_params']['raster_size'][0], \
+#                                                            n_channels = 7))
 
+from src.customModel.customModel import TorchRasterQNet, TorchRasterPolicyNet
+ModelCatalog.register_custom_model( "TorchRasterQNet", TorchRasterQNet)
+ModelCatalog.register_custom_model( "TorchRasterPolicyNet", TorchRasterPolicyNet)
 #################### Wandb ####################
 
 # import numpy as np
@@ -79,7 +83,7 @@ train_envs = 4
 
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/home/pronton/ray_results/debug_sac' + date
+ray_result_logdir = '/home/pronton/ray_results/debug_sac_simplecnn_rasternet' + date
 
 lr = 3e-3
 lr_start = 3e-4
@@ -88,22 +92,30 @@ config_param_space = {
     "env": "L5-CLE-V1",
     "framework": "torch",
     "num_gpus": 1,
-    "num_workers": 2, # 63
+    "num_workers": 32, # 63
     "num_envs_per_worker": train_envs,
-    'q_model_config' : {
-            # "dim": 112,
-            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-            # "conv_activation": "relu",
-            "post_fcnet_hiddens": [256],
-            "post_fcnet_activation": "relu",
-        },
-    'policy_model_config' : {
-            # "dim": 112,
-            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-            # "conv_activation": "relu",
-            "post_fcnet_hiddens": [256],
-            "post_fcnet_activation": "relu",
-        },
+    'q_model_config':{
+        'custom_model': 'TorchRasterQNet',
+        # 'custom_model_config': {'cfg': cfg,}
+    },
+    'policy_model_config':{
+        'custom_model': 'TorchRasterPolicyNet',
+        # 'custom_model_config': {'cfg': cfg,}
+    },
+    # 'q_model_config' : {
+    #         # "dim": 112,
+    #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+    #         # "conv_activation": "relu",
+    #         "post_fcnet_hiddens": [256],
+    #         "post_fcnet_activation": "relu",
+    #     },
+    # 'policy_model_config' : {
+    #         # "dim": 112,
+    #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+    #         # "conv_activation": "relu",
+    #         "post_fcnet_hiddens": [256],
+    #         "post_fcnet_activation": "relu",
+    #     },
     'tau': 0.005,
     'target_network_update_freq': 1,
     'replay_buffer_config':{
@@ -126,9 +138,9 @@ config_param_space = {
 # #         "custom_model": "GN_CNN_torch_model",
 # #         "custom_model_config": {'feature_dim':128},
 # #     },
-#     '_disable_preprocessor_api': True,
-#      "eager_tracing": True,
-#      "restart_failed_sub_environments": True,
+    '_disable_preprocessor_api': True,
+     "eager_tracing": True,
+     "restart_failed_sub_environments": True,
  
     # 'train_batch_size': 4000,
     # 'sgd_minibatch_size': 256,
@@ -143,6 +155,72 @@ config_param_space = {
     'twin_q' : True,
     "lr": 3e-4,
     "min_sample_timesteps_per_iteration": 1024, # 8000
+}
+
+lr = 3e-3
+lr_start = 3e-4
+lr_end = 3e-5
+config_param_space = {
+    "env": "L5-CLE-V1",
+    "framework": "torch",
+    "num_gpus": 1,
+    "num_workers": 63,
+    "num_envs_per_worker": train_envs,
+    
+    # 'q_model_config':{
+    #     'custom_model': 'TorchRasterQNet',
+    #     # 'custom_model_config': {'cfg': cfg,}
+    # },
+    # 'policy_model_config':{
+    #     'custom_model': 'TorchRasterPolicyNet',
+    #     # 'custom_model_config': {'cfg': cfg,}
+    # },
+    
+    'q_model_config' : {
+            # "dim": 112,
+            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+            # "conv_activation": "relu",
+            "post_fcnet_hiddens": [256],
+            "post_fcnet_activation": "relu",
+        },
+    'policy_model_config' : {
+            # "dim": 112,
+            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+            # "conv_activation": "relu",
+            "post_fcnet_hiddens": [256],
+            "post_fcnet_activation": "relu",
+        },
+    'tau': 0.005,
+    'target_network_update_freq': 1,
+    'replay_buffer_config':{
+        'type': 'MultiAgentPrioritizedReplayBuffer',
+        'capacity': int(1e5),
+        "worker_side_prioritization": True,
+    },
+    'num_steps_sampled_before_learning_starts': 8000,
+    
+    'target_entropy': 'auto',
+#     "model": {
+#         "custom_model": "GN_CNN_torch_model",
+#         "custom_model_config": {'feature_dim':128},
+#     },
+    '_disable_preprocessor_api': True,
+     "eager_tracing": True,
+     "restart_failed_sub_environments": True,
+ 
+    # 'train_batch_size': 4000,
+    # 'sgd_minibatch_size': 256,
+    # 'num_sgd_iter': 16,
+    # 'store_buffer_in_checkpoints' : False,
+    'seed': 42,
+    'batch_mode': 'truncate_episodes',
+    "rollout_fragment_length": 1,
+    'train_batch_size': 2048,
+    'training_intensity' : 32, # (4x 'natural' value = 8) train_batch_size / (rollout_fragment_length x num_workers x num_envs_per_worker).
+    'gamma': 0.8,
+    'twin_q' : True,
+    "lr": 3e-4,
+    "min_sample_timesteps_per_iteration": 8000,
 }
 
 result_grid = tune.Tuner(
@@ -160,12 +238,12 @@ result_grid = tune.Tuner(
 # path_to_trained_agent_checkpoint = 'l5kit/ray_results/29-12-2022_07-47-22/SAC/SAC_L5-CLE-V1_5af7a_00000_0_2022-12-29_00-47-23/checkpoint_000249'
 # from ray.rllib.algorithms.sac import SAC
 # ray.tune.run(SAC, config=config_param_space, restore=path_to_trained_agent_checkpoint)
-#from ray.rllib.algorithms.sac import SAC
+# from ray.rllib.algorithms.sac import SAC
     # checkpoint_path = 'l5kit/ray_results/01-01-2023_15-53-49/SAC/SAC_L5-CLE-V1_cf7bb_00000_0_2023-01-01_08-53-50/checkpoint_000170'
     # checkpoint_path = '/home/pronton/ray_results/31-12-2022_07-53-04/SAC/SAC_L5-CLE-V1_7bae1_00000_0_2022-12-31_00-53-04/checkpoint_000360'
-#checkpoint_path = '/home/pronton/ray_results/debug_sac16-04-2023_14-35-28/SAC/SAC_L5-CLE-V1_428d6_00000_0_2023-04-16_07-35-28/checkpoint_000100'
-#model = SAC(config=config_param_space, env='L5-CLE-V2')
-#model.restore(checkpoint_path)
+# checkpoint_path = '/home/pronton/ray_results/debug_sac16-04-2023_14-35-28/SAC/SAC_L5-CLE-V1_428d6_00000_0_2023-04-16_07-35-28/checkpoint_000100'
+# model = SAC(config=config_param_space, env='L5-CLE-V2')
+# model.restore(checkpoint_path)
 
 # ray_result_logdir = '/workspace/datasets/ray_results/debug02-04-2023_11-30-49/SAC'
 

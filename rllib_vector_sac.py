@@ -26,7 +26,7 @@ import ray
 import pytz
 from ray import tune
 
-ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode=True)
+ray.init(num_cpus=64, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode=False)
 
 
 from l5kit.configs import load_config_data
@@ -91,11 +91,85 @@ train_envs = 4
 lr = 3e-4
 lr_start = 3e-5
 lr_end = 3e-6
+# config_param_space = {
+#     "env": "L5-CLE-V2",
+#     "framework": "torch",
+#     "num_gpus": 1,
+#     "num_workers": 8, # 63
+#     "num_envs_per_worker": train_envs,
+#     'q_model_config':{
+#         'custom_model': 'TorchVectorQNet',
+#         'custom_model_config': {'cfg': cfg,}
+#     },
+#     'policy_model_config':{
+#         'custom_model': 'TorchVectorPolicyNet',
+#         'custom_model_config': {'cfg': cfg,}
+#     },
+
+#     # 'q_model_config' : {
+#     #         # "dim": 112,
+#     #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+#     #         # "conv_activation": "relu",
+#     #         "post_fcnet_hiddens": [256],
+#     #         "post_fcnet_activation": "relu",
+#     #     },
+#     # 'policy_model_config' : {
+#     #         # "dim": 112,
+#     #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+#     #         # "conv_activation": "relu",
+#     #         "post_fcnet_hiddens": [256],
+#     #         "post_fcnet_activation": "relu",
+#     #     },
+#     'disable_env_checking': True,
+#     'tau': 0.005,
+#     'target_network_update_freq': 1,
+#     'replay_buffer_config':{
+#         'type': 'MultiAgentPrioritizedReplayBuffer',
+#         'capacity': int(1e5), #int(1e5)
+#         "worker_side_prioritization": True,
+#     },
+#     'num_steps_sampled_before_learning_starts': 1024, #8000
+    
+#     'target_entropy': 'auto',
+# #     "model": {
+# #         "custom_model": "GN_CNN_torch_model",
+# #         "custom_model_config": {'feature_dim':128},
+# #     },
+# #     'store_buffer_in_checkpoints': True,
+# #     'num_steps_sampled_before_learning_starts': 1024, # 8000,
+    
+# #     'target_entropy': 'auto',
+# # #     "model": {
+# # #         "custom_model": "GN_CNN_torch_model",
+# # #         "custom_model_config": {'feature_dim':128},
+# # #     },
+#     '_disable_preprocessor_api': True,
+# #      "eager_tracing": True,
+# #      "restart_failed_sub_environments": True,
+ 
+#     # 'train_batch_size': 4000,
+#     # 'sgd_minibatch_size': 256,
+#     # 'num_sgd_iter': 16,
+#     # 'store_buffer_in_checkpoints' : False,
+#     'seed': 42,
+#     'batch_mode': 'truncate_episodes',
+#     "rollout_fragment_length": 1,
+#     'train_batch_size': 256, # 2048
+#     'training_intensity' : 32, # (4x 'natural' value = 8) 'natural value = train_batch_size / (rollout_fragment_length x num_workers x num_envs_per_worker) = 256 / 1x 8 x 4 = 8
+#     'gamma': 0.8,
+#     'twin_q' : True,
+#     "lr": 3e-4,
+#     "min_sample_timesteps_per_iteration": 1024, # 8000
+# }
+
+lr = 3e-4
+lr_start = 3e-5
+lr_end = 3e-6
 config_param_space = {
     "env": "L5-CLE-V2",
     "framework": "torch",
     "num_gpus": 1,
-    "num_workers": 8, # 63
+    "num_workers": 63,
     "num_envs_per_worker": train_envs,
     'q_model_config':{
         'custom_model': 'TorchVectorQNet',
@@ -105,47 +179,23 @@ config_param_space = {
         'custom_model': 'TorchVectorPolicyNet',
         'custom_model_config': {'cfg': cfg,}
     },
-
-    # 'q_model_config' : {
-    #         # "dim": 112,
-    #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-    #         # "conv_activation": "relu",
-    #         "post_fcnet_hiddens": [256],
-    #         "post_fcnet_activation": "relu",
-    #     },
-    # 'policy_model_config' : {
-    #         # "dim": 112,
-    #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-    #         # "conv_activation": "relu",
-    #         "post_fcnet_hiddens": [256],
-    #         "post_fcnet_activation": "relu",
-    #     },
-    'disable_env_checking': True,
     'tau': 0.005,
     'target_network_update_freq': 1,
     'replay_buffer_config':{
         'type': 'MultiAgentPrioritizedReplayBuffer',
-        'capacity': int(1e5), #int(1e5)
+        'capacity': int(4e5),
         "worker_side_prioritization": True,
     },
-    'num_steps_sampled_before_learning_starts': 1024, #8000
+    'num_steps_sampled_before_learning_starts': 8000,
     
     'target_entropy': 'auto',
 #     "model": {
 #         "custom_model": "GN_CNN_torch_model",
 #         "custom_model_config": {'feature_dim':128},
 #     },
-#     'store_buffer_in_checkpoints': True,
-#     'num_steps_sampled_before_learning_starts': 1024, # 8000,
-    
-#     'target_entropy': 'auto',
-# #     "model": {
-# #         "custom_model": "GN_CNN_torch_model",
-# #         "custom_model_config": {'feature_dim':128},
-# #     },
     '_disable_preprocessor_api': True,
-#      "eager_tracing": True,
-#      "restart_failed_sub_environments": True,
+     "eager_tracing": True,
+     "restart_failed_sub_environments": True,
  
     # 'train_batch_size': 4000,
     # 'sgd_minibatch_size': 256,
@@ -154,12 +204,12 @@ config_param_space = {
     'seed': 42,
     'batch_mode': 'truncate_episodes',
     "rollout_fragment_length": 1,
-    'train_batch_size': 256, # 2048
-    'training_intensity' : 32, # (4x 'natural' value = 8) 'natural value = train_batch_size / (rollout_fragment_length x num_workers x num_envs_per_worker) = 256 / 1x 8 x 4 = 8
+    'train_batch_size': 256, #512, #1024,#2048,
+    'training_intensity' : 32, # (4x 'natural' value = 8) train_batch_size / (rollout_fragment_length x num_workers x num_envs_per_worker).
     'gamma': 0.8,
     'twin_q' : True,
     "lr": 3e-4,
-    "min_sample_timesteps_per_iteration": 1024, # 8000
+    "min_sample_timesteps_per_iteration": 8000,
 }
 
 result_grid = tune.Tuner(

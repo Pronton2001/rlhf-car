@@ -382,7 +382,7 @@ class TorchRasterNet3(TorchModelV2, nn.Module): #TODO: recreate rasternet for PP
     def value_function(self):
         return self._value
 
-class TorchRasterNetSAC(SACTorchModel):
+class TorchRasterNetSAC_test(SACTorchModel):
     """
     RasterNet Model agent
     """
@@ -424,7 +424,7 @@ class TorchRasterNetSAC(SACTorchModel):
         # self.outputs = nn.ModuleList()
         # for i in range(action_space.shape[0]):
         #     self.outputs.append(nn.Linear(num_outputs, 1)) # 6x
-        super(TorchRasterNetSAC, self).__init__(
+        super(TorchRasterNetSAC_test, self).__init__(
             obs_space, action_space, num_outputs, model_config, name, policy_model_config, q_model_config, twin_q, initial_alpha, target_entropy
         )
         
@@ -539,7 +539,7 @@ class TorchRasterNetSAC(SACTorchModel):
     def value_function(self):
         return self._value
 
-class TorchRasterQNet(TorchModelV2, nn.Module):
+class TorchRasterQNet_test(TorchModelV2, nn.Module):
     """
     RasterNet Model agent
     """
@@ -1220,6 +1220,66 @@ class TorchVectorQNet(TorchModelV2, nn.Module):
         logging.debug(f"features dim: {features.shape}")
         logging.debug(f"action dim: {action.shape}")
         return self.q_net(torch.cat((features, action), dim=1)), state
+
+class TorchRasterQNet(TorchModelV2, nn.Module):
+    """
+    RasterNet Model agent
+    """
+
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+
+        d_model = 256
+        self.state_feature =RasterizedPlanningModelFeature(
+            model_arch="simple_cnn",
+            num_input_channels= 7,
+            num_targets=d_model,  # feature dim of critic
+            weights_scaling=[1., 1., 1.],
+            criterion=nn.MSELoss(reduction="none"),)
+        self.action_dim = np.product(action_space.shape)
+        # action_outs = 2 * self.action_dim
+        q_outs = 1
+        self.action_feature =MLP(self.action_dim, d_model, output_dim = d_model , num_layers=1)
+        self.q_net = MLP(2* d_model, 2* d_model, output_dim = q_outs , num_layers=1)
+
+
+    def forward(self, input_dict, state, seq_lens):
+        obs, action = input_dict['obs']
+        state_features = self.state_feature(obs)
+        action_features = self.action_feature(action)
+        logging.debug(f"state features dim: {state_features.shape}")
+        logging.debug(f"action features dim: {action_features.shape}")
+        return self.q_net(torch.cat((state_features, action_features), dim=1)), state
+
+class TorchRasterPolicyNet(TorchModelV2, nn.Module):
+    """
+    RasterNet Model agent
+    """
+
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+        d_model = 256
+        self.state_feature =RasterizedPlanningModelFeature(
+            model_arch="simple_cnn",
+            num_input_channels= 7,
+            num_targets=d_model,  # feature dim of critic
+            weights_scaling=[1., 1., 1.],
+            criterion=nn.MSELoss(reduction="none"),)
+
+        self.fc = MLP(d_model, d_model , output_dim= num_outputs, num_layers=1)
+
+    def forward(self, input_dict, state, seq_lens):
+        # logging.debug(f'policy input: {input_dict["obs"]}')
+        # logging.debug(f'policy input: {input_dict["action"]}')
+        obs = input_dict['obs']
+        # logging.debug(f'policy input types: {[v.dtype for v in input_dict["obs"].values()]}')
+        features = self.state_feature(obs)
+        return self.fc(features), state
 
 class TorchAttentionModel4(TorchModelV2, nn.Module):
     """
