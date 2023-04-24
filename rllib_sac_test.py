@@ -44,7 +44,7 @@ ray_result_logdir = 'home/pronton/ray_results/debug_original_sac' + date
 
 ray.init(num_cpus=64, ignore_reinit_error=True, log_to_driver=False)
 
-from src.customEnv.wrapper import L5EnvRasterizerTorch
+from src.customEnv.wrapper import L5EnvRasterizerTorch, L5EnvWrapperTorch
     
 from ray import tune
 train_eps_length = 32
@@ -58,8 +58,13 @@ tune.register_env("L5-CLE-V1", lambda config: L5EnvRasterizerTorch(env = L5Env(*
                                                            raster_size= cfg['raster_params']['raster_size'][0], \
                                                            n_channels = 7))
 
-from src.customModel.customModel import TorchRasterQNet, TorchRasterPolicyNet
+# tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
+#                                                            raster_size= cfg['raster_params']['raster_size'][0], \
+#                                                            n_channels = 7))
+from src.customModel.customModel import TorchRasterQNet, TorchRasterQNet2, TorchRasterPolicyNet, TorchRasterNetSAC
+ModelCatalog.register_custom_model( "TorchRasterNetSAC", TorchRasterNetSAC)
 ModelCatalog.register_custom_model( "TorchRasterQNet", TorchRasterQNet)
+ModelCatalog.register_custom_model( "TorchRasterQNet2", TorchRasterQNet2)
 ModelCatalog.register_custom_model( "TorchRasterPolicyNet", TorchRasterPolicyNet)
 import ray
 from ray import air, tune
@@ -67,7 +72,8 @@ train_envs = 4
 
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/home/pronton/ray_results/debug_sac' + date
+# ray_result_logdir = '/home/pronton/ray_results/debug_sac' + date
+ray_result_logdir = '/home/pronton/ray_results/debug_sac/Raster' + date
 
 lr = 3e-3
 lr_start = 3e-4
@@ -79,29 +85,37 @@ config_param_space = {
     "num_workers": 32,
     "num_envs_per_worker": train_envs,
 
+    # "model_config":{
+    #     'custom_model': 'TorchRasterNetSAC'
+    #     # 'custom_model_config':{
+            
+    #     # },
+    # },
     
-    'q_model_config':{
-        'custom_model': 'TorchRasterQNet',
-        # 'custom_model_config': {'cfg': cfg,}
-    },
-    'policy_model_config':{
-        'custom_model': 'TorchRasterPolicyNet',
-        # 'custom_model_config': {'cfg': cfg,}
-    },
-    # 'q_model_config' : {
-    #         # "dim": 112,
-    #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-    #         # "conv_activation": "relu",
-    #         "post_fcnet_hiddens": [256],
-    #         "post_fcnet_activation": "relu",
-    #     },
-    # 'policy_model_config' : {
-    #         # "dim": 112,
-    #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-    #         # "conv_activation": "relu",
-    #         "post_fcnet_hiddens": [256],
-    #         "post_fcnet_activation": "relu",
-    #     },
+    # 'q_model_config':{
+    #     'custom_model': 'TorchRasterQNet2',
+    #     # 'custom_model_config': {'cfg': cfg,}
+    # },
+    # 'policy_model_config':{
+    #     'custom_model': 'TorchRasterPolicyNet',
+    #     # 'custom_model_config': {'cfg': cfg,}
+    # },
+    'q_model_config' : {
+            'custom_model': 'TorchRasterQNet',
+            # "dim": 112,
+            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+            # "conv_activation": "relu",
+            "post_fcnet_hiddens": [256],
+            "post_fcnet_activation": "relu",
+        },
+    'policy_model_config' : {
+            'custom_model': 'TorchRasterPolicyNet',
+            # "dim": 112,
+            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+            # "conv_activation": "relu",
+            "post_fcnet_hiddens": [256],
+            "post_fcnet_activation": "relu",
+        },
     'tau': 0.005,
     'target_network_update_freq': 1,
     'replay_buffer_config':{

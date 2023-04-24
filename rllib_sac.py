@@ -126,9 +126,9 @@ config_param_space = {
 # #         "custom_model": "GN_CNN_torch_model",
 # #         "custom_model_config": {'feature_dim':128},
 # #     },
-#     '_disable_preprocessor_api': True,
-#      "eager_tracing": True,
-#      "restart_failed_sub_environments": True,
+    '_disable_preprocessor_api': True,
+     "eager_tracing": True,
+     "restart_failed_sub_environments": True,
  
     # 'train_batch_size': 4000,
     # 'sgd_minibatch_size': 256,
