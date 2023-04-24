@@ -382,7 +382,7 @@ class TorchRasterNet3(TorchModelV2, nn.Module): #TODO: recreate rasternet for PP
     def value_function(self):
         return self._value
 
-class TorchRasterNetSAC_test(SACTorchModel):
+class TorchRasterNetSAC(SACTorchModel):
     """
     RasterNet Model agent
     """
@@ -400,21 +400,6 @@ class TorchRasterNetSAC_test(SACTorchModel):
         target_entropy: Optional[float] = None,
     ):
 
-        self.log_std_x = -5
-        self.log_std_y = -5
-        self.log_std_yaw = -5
-
-
-        self._critic_head =RasterizedPlanningModelFeature(
-            model_arch="resnet50",
-            num_input_channels=5,
-            num_targets=64,  # feature dim of critic
-            weights_scaling=[1., 1., 1.],
-            criterion=nn.MSELoss(reduction="none"),)
-
-        d_model = 64
-        self._critic_FF = MLP(d_model, d_model * 4, output_dim= 1, num_layers=1)
-        model_path = "/workspace/source/src/model/planning_model_20201208.pt"
 #         model_path = "/home/pronton/rl/l5kit/examples/urban_driver/OL_HS.pt"
         # self._critic_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
         # self._actor_head = torch.load(model_path).to(self.device)
@@ -424,7 +409,7 @@ class TorchRasterNetSAC_test(SACTorchModel):
         # self.outputs = nn.ModuleList()
         # for i in range(action_space.shape[0]):
         #     self.outputs.append(nn.Linear(num_outputs, 1)) # 6x
-        super(TorchRasterNetSAC_test, self).__init__(
+        super(TorchRasterNetSAC, self).__init__(
             obs_space, action_space, num_outputs, model_config, name, policy_model_config, q_model_config, twin_q, initial_alpha, target_entropy
         )
         
@@ -439,18 +424,16 @@ class TorchRasterNetSAC_test(SACTorchModel):
         Returns:
             TorchModelV2: The TorchModelV2 policy sub-model.
         """
-        self._actor_head =RasterizedPlanningModelFeature(
-            model_arch="resnet50",
-            num_input_channels=5,
-            num_targets=3 ,#3 * cfg["model_params"]["future_num_frames"],  # X, Y, Yaw * number of future states 3 x 12
-            weights_scaling=[1., 1., 1.],
-            criterion=nn.MSELoss(reduction="none"),)
-        self._actor_head.load_state_dict(torch.load(model_path).state_dict(), strict = False)
-        # self._actor_head.to(self.device)
-        # self._actor_head.load_state_dict(torch.load(model_path).state_dict()).to(self.device)
-        for param in self._actor_head.parameters():
-            param.requires_grad = False
-        return self._actor_head
+        logging.debug(f'policy_model: {obs_space}. {self.action_space}. {num_outputs}')
+        model = ModelCatalog.get_model_v2(
+            obs_space,
+            self.action_space,
+            num_outputs,
+            policy_model_config,
+            framework="torch",
+            name=name,
+        )
+        return model 
 
     def build_q_model(self, obs_space, action_space, num_outputs, q_model_config, name): # TODO: take resnet50  224x224x5, how to concate input with action to compute Q?
         """Builds one of the (twin) Q-nets used by this SAC.
@@ -478,6 +461,7 @@ class TorchRasterNetSAC_test(SACTorchModel):
             else:
                 input_space = gym.spaces.Tuple([orig_space, action_space])
 
+        logging.debug(f'q_model: {input_space}. {obs_space}. {action_space}. {num_outputs}')
         model = ModelCatalog.get_model_v2(
             input_space,
             action_space,
@@ -487,58 +471,6 @@ class TorchRasterNetSAC_test(SACTorchModel):
             name=name,
         )
         return model
-    def forward(self, input_dict, state, seq_lens):
-        obs_transformed = input_dict['obs']
-        # logging.debug('obs forward:'+ str(obs_transformed))
-        logits = self._actor_head(obs_transformed)
-        # logging.debug('predict traj' + str(logits))
-        STEP_TIME = 1
-# <<<<<<< HEAD
-#         pred_x = logits['positions'][:,0, 0].view(-1,1).to(self.device) * STEP_TIME# take the first action 
-#         pred_y = logits['positions'][:,0, 1].view(-1,1).to(self.device) * STEP_TIME# take the first action
-#         pred_yaw = logits['yaws'][:,0,:].view(-1,1).to(self.device) * STEP_TIME# take the first action
-        
-#         std = torch.ones_like(pred_x).to(self.device) *-10 # 32,
-# #         raise ValueError(self.device, pred_x.device, std.device)
-#         # assert ones.shape[1] == 1, f'{ones.shape[1]}'
-#         # output_logits_mean = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
-#         output_logits = torch.cat((pred_x,pred_y, pred_yaw, std, std, std), dim = -1).to(self.device)
-# =======
-        
-        batch_size = len(input_dict)
-
-        predicted = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
-        # print(f'predicted {predicted}, shape: {predicted.shape}')
-        pred_x = predicted[:, 0, 0].view(-1,1) * STEP_TIME# take the first action 
-        pred_y = predicted[:, 0, 1].view(-1,1) * STEP_TIME# take the first action
-        pred_yaw = predicted[:, 0, 2].view(-1,1)* STEP_TIME# take the first action
-
-        # print(f'pred_x {pred_x}, shape: {pred_x.shape}')
-        # print(f'pred_y {pred_y}, shape: {pred_y.shape}')
-        # print(f'pred_yaw {pred_yaw}, shape: {pred_yaw.shape}')
-        # pred_x = logits['positions'][:,0, 0].view(-1,1) * STEP_TIME# take the first action 
-        # pred_y = logits['positions'][:,0, 1].view(-1,1) * STEP_TIME# take the first action
-        # pred_yaw = logits['yaws'][:,0,:].view(-1,1) * STEP_TIME# take the first action
-        ones = torch.ones_like(pred_x) # 32,
-        # assert ones.shape[1] == 1, f'{ones.shape[1]}'
-        # output_logits_mean = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
-        output_logits = torch.cat((pred_x, pred_y, pred_yaw, ones * self.log_std_x, ones * self.log_std_y, ones * self.log_std_yaw), dim = -1)
-# >>>>>>> a67daa30820ac7621232e8d1a33832b30093f810
-        # print('pretrained action', output_logits)
-        assert output_logits.shape[1] == 6, f'{output_logits.shape[1]}'
-        # self.outputs = output_logits
-
-        # dist = torch.distributions.Normal(output_logits_mean, torch.ones_like(output_logits_mean)*0.0005)
-        # print('-----------------------------sample', dist.rsample())
-
-        feature_value = self._critic_head(obs_transformed)
-        value = self._critic_FF(feature_value)
-        self._value = value.view(-1)
-
-        return output_logits, state
-    def value_function(self):
-        return self._value
-
 class TorchRasterQNet_test(TorchModelV2, nn.Module):
     """
     RasterNet Model agent
@@ -1208,18 +1140,25 @@ class TorchVectorQNet(TorchModelV2, nn.Module):
         # action_outs = 2 * self.action_dim
         q_outs = 1
         d_model = 256
-        self.q_net = MLP(self.action_dim + d_model, d_model, output_dim = q_outs , num_layers=1)
+        self.action_feature = nn.Sequential(
+            nn.Linear(in_features=3, out_features=256),
+            nn.Tanh(),
+            nn.Linear(in_features=256, out_features=256),
+            nn.Tanh(),
+        )
+        self.q_net = MLP(d_model + d_model, d_model, output_dim = q_outs , num_layers=1)
 
 
     def forward(self, input_dict, state, seq_lens):
         # TODO: test input shape
         # logging.debug(f"q obs input_dict: {input_dict['obs'][0]}")
         # logging.debug(f"q action input_dict: {input_dict['obs'][1]}")
-        obs,action = input_dict['obs']
-        features, attns = self.attention(obs)
-        logging.debug(f"features dim: {features.shape}")
-        logging.debug(f"action dim: {action.shape}")
-        return self.q_net(torch.cat((features, action), dim=1)), state
+        obs, action = input_dict['obs']
+        state_features, attns = self.attention(obs)
+        action_features = self.action_feature(action)
+        logging.debug(f"features dim: {state_features.shape}")
+        logging.debug(f"action dim: {action_features.shape}")
+        return self.q_net(torch.cat((state_features, action_features), dim=1)), state
 
 class TorchRasterQNet(TorchModelV2, nn.Module):
     """
@@ -1241,6 +1180,12 @@ class TorchRasterQNet(TorchModelV2, nn.Module):
         # action_outs = 2 * self.action_dim
         q_outs = 1
         self.action_feature =MLP(self.action_dim, d_model, output_dim = d_model , num_layers=1)
+        self.action_feature = nn.Sequential(
+            nn.Linear(in_features=3, out_features=256),
+            nn.Tanh(),
+            nn.Linear(in_features=256, out_features=256),
+            nn.Tanh(),
+        )
         self.q_net = MLP(2* d_model, 2* d_model, output_dim = q_outs , num_layers=1)
 
 
@@ -1252,6 +1197,36 @@ class TorchRasterQNet(TorchModelV2, nn.Module):
         logging.debug(f"action features dim: {action_features.shape}")
         return self.q_net(torch.cat((state_features, action_features), dim=1)), state
 
+class TorchRasterQNet2(TorchModelV2, nn.Module):
+    # TODO: TEST THIS
+    """
+    RasterNet Model agent
+    """
+
+    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+        nn.Module.__init__(self)
+
+        logging.debug(f'{obs_space}. {action_space}. {num_outputs}. ')
+
+        model = ModelCatalog.get_model_v2(
+            obs_space,
+            action_space,
+            num_outputs,
+            model_config,
+            framework="torch",
+            name=name,
+        )
+        return model
+
+
+    def forward(self, input_dict, state, seq_lens):
+        obs, action = input_dict['obs']
+        state_features = self.state_feature(obs)
+        action_features = self.action_feature(action)
+        logging.debug(f"state features dim: {state_features.shape}")
+        logging.debug(f"action features dim: {action_features.shape}")
+        return self.q_net(torch.cat((state_features, action_features), dim=1)), state
 class TorchRasterPolicyNet(TorchModelV2, nn.Module):
     """
     RasterNet Model agent
