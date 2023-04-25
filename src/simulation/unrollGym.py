@@ -4,7 +4,6 @@ from l5kit.visualization.visualizer.zarr_utils import episode_out_to_visualizer_
 from l5kit.configs import load_config_data
 from bokeh.io import show
 from l5kit.visualization.visualizer.visualizer import visualize
-
 dmg = LocalDataManager(None)
 env_config_path = 'src/configs/gym_config.yaml'
 cfg = load_config_data(env_config_path)

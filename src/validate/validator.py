@@ -59,10 +59,10 @@ def quantify_outputs(sim_outs, metric_set=None):
         ade_error = scene_metrics["displacement_error_l2"][1:].mean()
         fde_error = scene_metrics['displacement_error_l2'][-1]
         drt_error = scene_metrics['distance_to_reference_trajectory'][1:].mean()
-        cf_error = scene_metrics['collision_front'][1:].sum() > 0
-        cr_error = scene_metrics['collision_rear'][1:].sum() > 0
-        cs_error = scene_metrics['collision_side'][1:].sum() > 0
-        p_ego = scene_metrics['simulated_minus_recorded_ego_speed'][-1]
+        cf_error = scene_metrics['collision_front'][1:].sum()
+        cr_error = scene_metrics['collision_rear'][1:].sum() 
+        cs_error = scene_metrics['collision_side'][1:].sum() 
+        p_ego = scene_metrics['simulated_minus_recorded_ego_speed'][1:].mean()
         # a_ego = scene_metrics['aggressive_ego'][-1]
         table.add_row([scene_id, round(fde_error.item(), 4), round(ade_error.item(), 4), round(drt_error.item(), 4), round(cf_error.item(), 4), round(cr_error.item(), 4), 
         round(cs_error.item(), 4), round(p_ego.item(), 4)])
