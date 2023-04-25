@@ -51,13 +51,13 @@ train_sim_cfg.num_simulation_steps = train_eps_length + 1
 # Register , how your env should be constructed (always with 5, or you can take values from the `config` EnvContext object):
 env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cfg': train_sim_cfg}
 
-tune.register_env("L5-CLE-V0", lambda config: L5Env(**env_kwargs))
-tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
-                                                           raster_size= cfg['raster_params']['raster_size'][0], \
-                                                           n_channels = 7))
-# tune.register_env("L5-CLE-V1", lambda config: L5EnvRasterizerTorch(env = L5Env(**env_kwargs), \
-#                                                            raster_size= cfg['raster_params']['raster_size'][0], \
-#                                                            n_channels = 7))
+# tune.register_env("L5-CLE-V0", lambda config: L5Env(**env_kwargs))
+#tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
+#                                                           raster_size= cfg['raster_params']['raster_size'][0], \
+#                                                           n_channels = 7))
+tune.register_env("L5-CLE-V1", lambda config: L5EnvRasterizerTorch(env = L5Env(**env_kwargs), \
+                                                            raster_size= cfg['raster_params']['raster_size'][0], \
+                                                            n_channels = 7))
 
 from src.customModel.customModel import TorchRasterQNet, TorchRasterPolicyNet
 ModelCatalog.register_custom_model( "TorchRasterQNet", TorchRasterQNet)
@@ -83,7 +83,7 @@ train_envs = 4
 
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/home/pronton/ray_results/debug_sac_simplecnn_rasternet' + date
+ray_result_logdir = '/home/pronton/ray_results/raster_sac' + date
 
 lr = 3e-3
 lr_start = 3e-4
@@ -92,15 +92,17 @@ config_param_space = {
     "env": "L5-CLE-V1",
     "framework": "torch",
     "num_gpus": 1,
-    "num_workers": 32, # 63
+    "num_workers": 8, # 63
     "num_envs_per_worker": train_envs,
     'q_model_config':{
         'custom_model': 'TorchRasterQNet',
-        # 'custom_model_config': {'cfg': cfg,}
+        "post_fcnet_hiddens": [256],
+        "post_fcnet_activation": "relu",
     },
     'policy_model_config':{
         'custom_model': 'TorchRasterPolicyNet',
-        # 'custom_model_config': {'cfg': cfg,}
+        "post_fcnet_hiddens": [256],
+        "post_fcnet_activation": "relu",
     },
     # 'q_model_config' : {
     #         # "dim": 112,
@@ -157,71 +159,71 @@ config_param_space = {
     "min_sample_timesteps_per_iteration": 1024, # 8000
 }
 
-lr = 3e-3
-lr_start = 3e-4
-lr_end = 3e-5
-config_param_space = {
-    "env": "L5-CLE-V1",
-    "framework": "torch",
-    "num_gpus": 1,
-    "num_workers": 63,
-    "num_envs_per_worker": train_envs,
+# lr = 3e-3
+# lr_start = 3e-4
+# lr_end = 3e-5
+# config_param_space = {
+#     "env": "L5-CLE-V1",
+#     "framework": "torch",
+#     "num_gpus": 1,
+#     "num_workers": 63,
+#     "num_envs_per_worker": train_envs,
     
-    # 'q_model_config':{
-    #     'custom_model': 'TorchRasterQNet',
-    #     # 'custom_model_config': {'cfg': cfg,}
-    # },
-    # 'policy_model_config':{
-    #     'custom_model': 'TorchRasterPolicyNet',
-    #     # 'custom_model_config': {'cfg': cfg,}
-    # },
+#     # 'q_model_config':{
+#     #     'custom_model': 'TorchRasterQNet',
+#     #     # 'custom_model_config': {'cfg': cfg,}
+#     # },
+#     # 'policy_model_config':{
+#     #     'custom_model': 'TorchRasterPolicyNet',
+#     #     # 'custom_model_config': {'cfg': cfg,}
+#     # },
     
-    'q_model_config' : {
-            # "dim": 112,
-            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-            # "conv_activation": "relu",
-            "post_fcnet_hiddens": [256],
-            "post_fcnet_activation": "relu",
-        },
-    'policy_model_config' : {
-            # "dim": 112,
-            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-            # "conv_activation": "relu",
-            "post_fcnet_hiddens": [256],
-            "post_fcnet_activation": "relu",
-        },
-    'tau': 0.005,
-    'target_network_update_freq': 1,
-    'replay_buffer_config':{
-        'type': 'MultiAgentPrioritizedReplayBuffer',
-        'capacity': int(1e5),
-        "worker_side_prioritization": True,
-    },
-    'num_steps_sampled_before_learning_starts': 8000,
-    
-    'target_entropy': 'auto',
-#     "model": {
-#         "custom_model": "GN_CNN_torch_model",
-#         "custom_model_config": {'feature_dim':128},
+#     'q_model_config' : {
+#             # "dim": 112,
+#             # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+#             # "conv_activation": "relu",
+#             "post_fcnet_hiddens": [256],
+#             "post_fcnet_activation": "relu",
+#         },
+#     'policy_model_config' : {
+#             # "dim": 112,
+#             # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+#             # "conv_activation": "relu",
+#             "post_fcnet_hiddens": [256],
+#             "post_fcnet_activation": "relu",
+#         },
+#     'tau': 0.005,
+#     'target_network_update_freq': 1,
+#     'replay_buffer_config':{
+#         'type': 'MultiAgentPrioritizedReplayBuffer',
+#         'capacity': int(1e5),
+#         "worker_side_prioritization": True,
 #     },
-    '_disable_preprocessor_api': True,
-     "eager_tracing": True,
-     "restart_failed_sub_environments": True,
+#     'num_steps_sampled_before_learning_starts': 8000,
+    
+#     'target_entropy': 'auto',
+# #     "model": {
+# #         "custom_model": "GN_CNN_torch_model",
+# #         "custom_model_config": {'feature_dim':128},
+# #     },
+#     '_disable_preprocessor_api': True,
+#      "eager_tracing": True,
+#      "restart_failed_sub_environments": True,
  
-    # 'train_batch_size': 4000,
-    # 'sgd_minibatch_size': 256,
-    # 'num_sgd_iter': 16,
-    # 'store_buffer_in_checkpoints' : False,
-    'seed': 42,
-    'batch_mode': 'truncate_episodes',
-    "rollout_fragment_length": 1,
-    'train_batch_size': 2048,
-    'training_intensity' : 32, # (4x 'natural' value = 8) train_batch_size / (rollout_fragment_length x num_workers x num_envs_per_worker).
-    'gamma': 0.8,
-    'twin_q' : True,
-    "lr": 3e-4,
-    "min_sample_timesteps_per_iteration": 8000,
-}
+#     # 'train_batch_size': 4000,
+#     # 'sgd_minibatch_size': 256,
+#     # 'num_sgd_iter': 16,
+#     # 'store_buffer_in_checkpoints' : False,
+#     'seed': 42,
+#     'batch_mode': 'truncate_episodes',
+#     "rollout_fragment_length": 1,
+#     'train_batch_size': 2048,
+#     'training_intensity' : 32, # (4x 'natural' value = 8) train_batch_size / (rollout_fragment_length x num_workers x num_envs_per_worker).
+#     'gamma': 0.8,
+#     'twin_q' : True,
+#     "lr": 3e-4,
+#     "min_sample_timesteps_per_iteration": 8000,
+# }
 
 result_grid = tune.Tuner(
     "SAC",

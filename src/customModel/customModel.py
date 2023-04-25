@@ -1068,7 +1068,6 @@ class TorchVectorPolicyNet(TorchModelV2, nn.Module):
     def __init__(self, obs_space, action_space, num_outputs, model_config, name):
         super().__init__(obs_space, action_space, num_outputs, model_config, name)
         nn.Module.__init__(self)
-        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         cfg = model_config["custom_model_config"]['cfg'] # TODO: Pass necessary params, not cfg
 
@@ -1081,11 +1080,7 @@ class TorchVectorPolicyNet(TorchModelV2, nn.Module):
             disable_lane_boundaries=cfg["model_params"]["disable_lane_boundaries"])
 
         d_model = 256
-        # assert num_outputs  == 1, f'wrong {num_outputs}'
-        # if num_outputs > 1: # actor
-        #     self.fc = MLP(d_model, d_model , output_dim = num_outputs, num_layers=1)
-        # else:
-        logging.debug(f'num_outputs in policy:{num_outputs}')
+        # logging.debug(f'num_outputs in policy:{num_outputs}')
         self.fc = MLP(d_model, d_model , output_dim= num_outputs, num_layers=1)
 
     def forward(self, input_dict, state, seq_lens):
@@ -1093,11 +1088,9 @@ class TorchVectorPolicyNet(TorchModelV2, nn.Module):
         # logging.debug(f'policy input: {input_dict["action"]}')
         obs = input_dict['obs']
         # logging.debug(f'policy input types: {[v.dtype for v in input_dict["obs"].values()]}')
-        #TODO: Why all type is torch.float32??? How to convert to bool, int as in l5env2, Why PPO can run?
         features, attns = self.attention(obs)
         return self.fc(features), state
 
-from ray.rllib.utils.spaces.space_utils import flatten_space
 class TorchVectorQNet(TorchModelV2, nn.Module):
     """
     RasterNet Model agent
@@ -1106,25 +1099,6 @@ class TorchVectorQNet(TorchModelV2, nn.Module):
     def __init__(self, obs_space, action_space, num_outputs, model_config, name):
         super().__init__(obs_space, action_space, num_outputs, model_config, name)
         nn.Module.__init__(self)
-        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-        # self.original_space = (
-        #     obs_space.original_space
-        #     if hasattr(obs_space, "original_space")
-        #     else obs_space
-        # )
-
-        # self.processed_obs_space = (
-        #     self.original_space
-        #     if model_config.get("_disable_preprocessor_api")
-        #     else obs_space
-        # )
-        # self.flattened_input_space = flatten_space(self.original_space)
-        # logging.debug(f'flattened_input_space: {self.flattened_input_space}')
-        # for i, component in enumerate(self.flattened_input_space):
-        #     print(component.shape)
-        # logging.debug(f'obs_space: {obs_space[0]}, action_space: {obs_space[1]}')
-        # logging.debug(f'action_space: {action_space}')
 
         cfg = model_config["custom_model_config"]['cfg'] # TODO: Pass necessary params, not cfg
 
@@ -1156,8 +1130,8 @@ class TorchVectorQNet(TorchModelV2, nn.Module):
         obs, action = input_dict['obs']
         state_features, attns = self.attention(obs)
         action_features = self.action_feature(action)
-        logging.debug(f"features dim: {state_features.shape}")
-        logging.debug(f"action dim: {action_features.shape}")
+        #logging.debug(f"features dim: {state_features.shape}")
+        #logging.debug(f"action dim: {action_features.shape}")
         return self.q_net(torch.cat((state_features, action_features), dim=1)), state
 
 class TorchRasterQNet(TorchModelV2, nn.Module):

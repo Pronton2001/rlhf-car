@@ -26,7 +26,7 @@ import ray
 import pytz
 from ray import tune
 
-ray.init(num_cpus=64, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode=False)
+ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode=False)
 
 
 from l5kit.configs import load_config_data
@@ -169,24 +169,28 @@ config_param_space = {
     "env": "L5-CLE-V2",
     "framework": "torch",
     "num_gpus": 1,
-    "num_workers": 63,
+    "num_workers": 8,
     "num_envs_per_worker": train_envs,
     'q_model_config':{
         'custom_model': 'TorchVectorQNet',
-        'custom_model_config': {'cfg': cfg,}
+        'custom_model_config': {'cfg': cfg,},
+        "post_fcnet_hiddens": [256],
+        "post_fcnet_activation": "relu",
     },
     'policy_model_config':{
         'custom_model': 'TorchVectorPolicyNet',
-        'custom_model_config': {'cfg': cfg,}
+        'custom_model_config': {'cfg': cfg,},
+        "post_fcnet_hiddens": [256],
+        "post_fcnet_activation": "relu",
     },
     'tau': 0.005,
     'target_network_update_freq': 1,
     'replay_buffer_config':{
         'type': 'MultiAgentPrioritizedReplayBuffer',
-        'capacity': int(4e5),
+        'capacity': int(1e5),
         "worker_side_prioritization": True,
     },
-    'num_steps_sampled_before_learning_starts': 8000,
+    'num_steps_sampled_before_learning_starts': 1024,
     
     'target_entropy': 'auto',
 #     "model": {
@@ -209,7 +213,7 @@ config_param_space = {
     'gamma': 0.8,
     'twin_q' : True,
     "lr": 3e-4,
-    "min_sample_timesteps_per_iteration": 8000,
+    "min_sample_timesteps_per_iteration": 1024,
 }
 
 result_grid = tune.Tuner(
@@ -230,5 +234,3 @@ result_grid = tune.Tuner(
 
 # tuner = tune.Tuner.restore(
 #     path=ray_result_logdir, resume_errored = True,
-# )
-# tuner.fit()

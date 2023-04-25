@@ -37,11 +37,6 @@ from src.constant import SRC_PATH
 # get environment config
 env_config_path = f'{SRC_PATH}src/configs/gym_config84.yaml'
 cfg = load_config_data(env_config_path)
-
-newYorkTz = pytz.timezone("Asia/Ho_Chi_Minh") 
-date = datetime.datetime.now(newYorkTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = 'home/pronton/ray_results/debug_original_sac' + date
-
 ray.init(num_cpus=64, ignore_reinit_error=True, log_to_driver=False)
 
 from src.customEnv.wrapper import L5EnvRasterizerTorch, L5EnvWrapperTorch
