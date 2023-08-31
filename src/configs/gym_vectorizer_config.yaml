@@ -4,8 +4,8 @@ format_version: 7
 ###################
 ## Model options
 model_params:
-  history_num_frames_ego: 1  # this will also create raster history (we need to remove the raster from train/eval dataset - only visualization)
-  history_num_frames: 1
+  history_num_frames_ego: 1 #1  # this will also create raster history (we need to remove the raster from train/eval dataset - only visualization)
+  history_num_frames: 0 
   history_num_frames_agents: 3
   step_time: 0.1
   disable_other_agents: False
@@ -30,19 +30,21 @@ model_params:
 ###################
 ## Data loader options
 train_data_loader:
-  key: "train/train.zarr"
-  batch_size: 12
+  key: "train9G/train.zarr"
+  # key: "validate/validate.zarr"
+  batch_size: 64
   shuffle: True
-  num_workers: 16
+  num_workers: 8
   ###################
   ## Only used for open-loop models
   perturb_probability: 0.5
 
 val_data_loader:
-  key: "validate/validate.zarr"
-  batch_size: 12
+  # key: "validate/validate.zarr"
+  key: "scenes/sample.zarr"
+  batch_size: 64
   shuffle: False
-  num_workers: 16
+  num_workers: 8
 
 ###################
 ## Input raster parameters
@@ -97,14 +99,13 @@ data_generation_params:
 ## Train params
 train_params:
   checkpoint_every_n_steps: 100
-  max_num_steps: 5
+  max_num_steps: 61
   eval_every_n_steps: 100
 
 ###################
 ## Gym params
 gym_params:
-  max_scene_id: 134622
-  max_val_scene_id: 16220
+  max_scene_id: 16220 #134622, 16265
+  max_val_scene_id: 100 #16220
   randomize_start_frame: True
   overfit: False
-  overfit_id: 0

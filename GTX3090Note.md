@@ -169,7 +169,7 @@ but obs_shape = (112,112,7)
 
 * LOW MEM:
 -> reduce num_workers may work
-* Reward drop intermediately    
+* Reward dr
 -> Maybe due to PPO try to find action to maximize Reward in 
 * 'Box' has no 'low_repr'
 ->pip3 install setuptools==65.5.0
@@ -313,3 +313,41 @@ wget https://lyft-l5-datasets-public.s3-us-west-2.amazonaws.com/models/urban_dri
                 pass 
                 # model_out = concat_obs_if_necessary(model_out)#-------------------------> comment this
             return self.action_model({"obs": model_out}, state_in, seq_lens)
+In models/modelv2.py
+FROM:
+            restored["obs"] = restore_original_dimensions(
+                input_dict["obs"], self.obs_space, self.framework
+            )
+            try:
+                if len(input_dict["obs"].shape) > 2:
+                    restored["obs_flat"] = flatten(input_dict["obs"], self.framework)
+                else:
+                    restored["obs_flat"] = input_dict["obs"]
+            except AttributeError:
+                restored["obs_flat"] = input_dict["obs"]
+
+TO: 
+            try:
+                restored["obs"] = restore_original_dimensions(
+                    input_dict["obs"], self.obs_space, self.framework
+                )
+                if len(input_dict["obs"].shape) > 2:
+                    restored["obs_flat"] = flatten(input_dict["obs"], self.framework)
+                else:
+                    restored["obs_flat"] = input_dict["obs"]
+            except AttributeError:
+                restored["obs_flat"] = input_dict["obs"]
+TO:
+            try:
+                restored["obs"] = restore_original_dimensions(
+                    input_dict["obs"], self.obs_space, self.framework
+                )
+            except:
+                restored["obs_flat"] = input_dict["obs"]
+            try:
+                if len(input_dict["obs"].shape) > 2:
+                    restored["obs_flat"] = flatten(input_dict["obs"], self.framework)
+                else:
+                    restored["obs_flat"] = input_dict["obs"]
+            except AttributeError:
+                restored["obs_flat"] = input_dict["obs"]

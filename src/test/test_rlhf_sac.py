@@ -39,7 +39,7 @@ from l5kit.configs import load_config_data
 # get environment config
 env_config_path = SRC_PATH + 'src/configs/gym_config84.yaml'
 cfg = load_config_data(env_config_path)
-ray.init(num_cpus=1, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9, local_mode= False)
+ray.init(num_cpus=1, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9, local_mode= True)
 
 
 from src.customEnv.wrapper import L5EnvWrapperHFreward
@@ -162,8 +162,8 @@ config_param_space = {
 # )
 # tuner.fit()
 checkpoint_path = '/home/pronton/ray_results/31-12-2022_07-53-04(SAC ~-30)/SAC/SAC_L5-CLE-V1_7bae1_00000_0_2022-12-31_00-53-04/checkpoint_000360'
-from src.customModel.customSACTrainer import KLSAC
-model = KLSAC(config=config_param_space, env='L5-CLE-V1')
+from src.customModel.customKLSACTrainer import KL
+model = KL(config=config_param_space, env='L5-CLE-V1')
 model.restore(checkpoint_path)
 # algo = KLSAC(config=config_param_space, env='L5-CLE-V1')
 

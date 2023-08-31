@@ -1,5 +1,5 @@
 import os
-from src.customModel.customModel import TorchAttentionModel3, TorchAttentionModel4SAC, TorchVectorQNet, TorchVectorPolicyNet
+from src.customModel.customModel import TorchAttentionModel3, TorchVectorSharedSAC, TorchVectorQNet, TorchVectorPolicyNet
 
 from src.constant import SRC_PATH
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
@@ -55,7 +55,7 @@ env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cf
 
 tune.register_env("L5-CLE-V2", lambda config: L5Env2(**env_kwargs))
 ModelCatalog.register_custom_model( "TorchAttentionModel3", TorchAttentionModel3)
-ModelCatalog.register_custom_model( "TorchAttentionModel4", TorchAttentionModel4SAC)
+ModelCatalog.register_custom_model( "TorchAttentionModel4", TorchVectorSharedSAC)
 ModelCatalog.register_custom_model( "TorchVectorQNet", TorchVectorQNet)
 ModelCatalog.register_custom_model( "TorchVectorPolicyNet", TorchVectorPolicyNet)
 
@@ -76,14 +76,14 @@ eval_config_param_space = {
     'q_model_config':{
         'custom_model': 'TorchVectorQNet',
         'custom_model_config': {'cfg': cfg,},
-        "post_fcnet_hiddens": [256],
-        "post_fcnet_activation": "relu",
+        # "post_fcnet_hiddens": [256],
+        # "post_fcnet_activation": "relu",
     },
     'policy_model_config':{
         'custom_model': 'TorchVectorPolicyNet',
         'custom_model_config': {'cfg': cfg,},
-        "post_fcnet_hiddens": [256],
-        "post_fcnet_activation": "relu",
+        # "post_fcnet_hiddens": [256],
+        # "post_fcnet_activation": "relu",
     },
     'tau': 0.005,
     'target_network_update_freq': 1,

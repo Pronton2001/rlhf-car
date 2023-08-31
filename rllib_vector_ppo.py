@@ -1,5 +1,5 @@
 import os
-from src.customModel.customModel import TorchAttentionModel3, TorchAttentionModel4
+from src.customModel.customModel import TorchAttentionModel3, TorchVectorPPO
 
 from src.constant import SRC_PATH
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
@@ -26,7 +26,7 @@ import ray
 import pytz
 from ray import tune
 
-ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode=False)
+ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5*10**9, local_mode=True)
 
 
 from l5kit.configs import load_config_data
@@ -35,17 +35,14 @@ from l5kit.configs import load_config_data
 # env_config_path = '/workspace/source/configs/gym_config_history3.yaml'
 # env_config_path = '/workspace/source/configs/gym_config84.yaml'
 env_config_path = SRC_PATH + 'src/configs/gym_vectorizer_config.yaml'
-env_config_path = SRC_PATH + 'src/configs/gym_vectorizer_config_hist3.yaml'
-# env_config_path = '/workspace/source/src/configs/gym_vectorizer_config.yaml'
+# env_config_path = SRC_PATH + 'src/configs/gym_vectorizer_config_hist3.yaml'
 cfg = load_config_data(env_config_path)
 
 
 #################### Define Training and Evaluation Environments ####################
-# n_channels = (cfg['model_params']['future_num_frames'] + 1)* 2 + 3
-# print(cfg['model_params']['future_num_frames'], cfg['model_params']['history_num_frames'], n_channels)
 from ray import tune
-from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch
-train_eps_length = 200
+from src.customEnv.wrapper import L5Env2WrapperTorchCLEReward
+train_eps_length = 32
 train_sim_cfg = SimulationConfigGym()
 train_sim_cfg.num_simulation_steps = train_eps_length + 1
 
@@ -53,16 +50,18 @@ train_sim_cfg.num_simulation_steps = train_eps_length + 1
 # Register , how your env should be constructed (always with 5, or you can take values from the `config` EnvContext object):
 env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cfg': train_sim_cfg}
 
-tune.register_env("L5-CLE-V2", lambda config: L5Env2(**env_kwargs))
-ModelCatalog.register_custom_model( "TorchAttentionModel3", TorchAttentionModel3)
-ModelCatalog.register_custom_model( "TorchAttentionModel4", TorchAttentionModel4)
-# tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapper(env = L5Env(**env_kwargs), \
-#                                                            raster_size= cfg['raster_params']['raster_size'][0], \
-# #                                                            n_channels = n_channels))
-# tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
-#                                                            raster_size= cfg['raster_params']['raster_size'][0], \
-#                                                            n_channels = n_channels))
-
+# tune.register_env("L5-CLE-V2", lambda config: L5Env2(**env_kwargs))
+reward_kwargs = {
+    'yaw_weight': 1.0,
+    'dist_weight': 1.0,
+    # 'd2r_weight': 0.0,
+    'cf_weight': 20.0,
+    'cr_weight': 20.0,
+    'cs_weight': 20.0,
+}
+tune.register_env("L5-CLE-V2", lambda config: L5Env2WrapperTorchCLEReward(L5Env2(**env_kwargs), reward_kwargs=reward_kwargs))
+ModelCatalog.register_custom_model( "TorchVectorPPO", TorchVectorPPO)
+# ModelCatalog.register_custom_model( "TorchAttentionModel4Pretrained", TorchAttentionModel4Pretrained)
 #################### Wandb ####################
 
 # import numpy as np
@@ -83,12 +82,14 @@ import ray
 from ray import air, tune
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/home/pronton/ray_results/debug_vector_ppo_separated_kin_hist3_200scences_gamma99' + date
+# ray_result_logdir = '/home/pronton/ray_results/debug_vector_ppo_newModel/separated_kin_hist3_updated2_CLErewardNew_dropoutMHAhead=0.0_2actions_loadpretrained_3fclayers_hist3' + date
+ray_result_logdir = '/home/pronton/ray_results/luanvan/PPO-T_nonfreeze_nonload' + date
+ray_result_logdir = '/home/pronton/ray_results/debug/KLRewardPPO-T_train9Gset' + date
 
 train_envs = 4
-lr = 3e-4
-lr_start = 3e-5
-lr_end = 3e-6
+lr = 3e-3
+lr_start = 3e-4
+lr_end = 3e-5
 lr_time = int(4e6)
 
 config_param_space = {
@@ -98,21 +99,18 @@ config_param_space = {
     "num_workers": 8,
     "num_envs_per_worker": train_envs,
     "model": {
-        "custom_model": "TorchAttentionModel4",
-        "custom_model_config": {'cfg':cfg,
-                                'freeze_actor': False,
-                                'shared_feature_extractor': False,
-                                },
+        "custom_model": "TorchVectorPPO",
+        "custom_model_config": {
+            'cfg':cfg,
+            'freeze_for_RLtuning':  False,
+            'load_pretrained': False,
+            'shared_feature_extractor': False,
+            'kl_div_weight': 1,
+            'log_std_acc': -1,
+            'log_std_steer': -1,
+            'reward_kwargs': reward_kwargs,
+        },
     },
-    
-    # 'model' : {
-    #         # "dim": 84,
-    #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-    #         # "conv_activation": "relu",
-    #         "post_fcnet_hiddens": [256],
-    #         "post_fcnet_activation": "relu",
-    #         "vf_share_layers": False,   
-    # },
     
     '_disable_preprocessor_api': True,
      "eager_tracing": True,
@@ -128,13 +126,15 @@ config_param_space = {
     'num_sgd_iter': 10,#16,
     'batch_mode': 'truncate_episodes',
     # "rollout_fragment_length": 32,
-    'gamma': 0.99,    
+    'gamma': 0.8,    
 }
 
+from src.customModel.customKLRewardPPOTrainer import KLRewardPPO
+
 result_grid = tune.Tuner(
-    "PPO",
-    run_config=air.RunConfig(
-        stop={"episode_reward_mean": 0, 'timesteps_total': int(6e6)},
+        KLRewardPPO, 
+        run_config=air.RunConfig(
+        stop={"episode_reward_mean": 0, 'timesteps_total': int(500)},
         local_dir=ray_result_logdir,
         checkpoint_config=air.CheckpointConfig(num_to_keep=2, 
                                                checkpoint_frequency = 10, 
@@ -143,6 +143,10 @@ result_grid = tune.Tuner(
         ),
     param_space=config_param_space).fit()
     
+from src.validate.validator import save_data
+from src.customModel.customKLRewardPPOPolicy import actions
+print(actions)
+save_data(actions, f'{SRC_PATH}src/validate/testset/500_actions.obj')
 
 #################### Retrain ####################
 # ray_result_logdir = '/workspace/datasets/ray_results/01-04-2023_19-55-37_(PPO~-70)/PPO'

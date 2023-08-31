@@ -38,11 +38,12 @@ from l5kit.configs import load_config_data
 
 # get environment config
 env_config_path = SRC_PATH + 'src/configs/gym_config84.yaml'
+env_config_path = SRC_PATH + 'src/configs/gym_config224.yaml'
 cfg = load_config_data(env_config_path)
-ray.init(num_cpus=3, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9)
+ray.init(num_cpus=9, ignore_reinit_error=True, log_to_driver=False, object_store_memory = 5e9)
 
 
-from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch
+from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch, L5EnvWrapperTorchCLEReward
 from ray import tune
 train_eps_length = 32
 train_sim_cfg = SimulationConfigGym()
@@ -54,7 +55,10 @@ tune.register_env("L5-CLE-V0", lambda config: L5Env(**env_kwargs))
 # tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapper(env = L5Env(**env_kwargs), \
 #                                                            raster_size= cfg['raster_params']['raster_size'][0], \
 #                                                            n_channels = 7))
-tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
+# tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorch(env = L5Env(**env_kwargs), \
+#                                                            raster_size= cfg['raster_params']['raster_size'][0], \
+#                                                            n_channels = 7))
+tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapperTorchCLEReward(env = L5Env(**env_kwargs), \
                                                            raster_size= cfg['raster_params']['raster_size'][0], \
                                                            n_channels = 7))
 
@@ -79,7 +83,7 @@ train_envs = 4
 
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/home/pronton/ray_results/debug_sac' + date
+ray_result_logdir = '/home/pronton/ray_results/luanvan/SAC_CNN_224' + date
 
 lr = 3e-3
 lr_start = 3e-4
@@ -92,14 +96,14 @@ config_param_space = {
     "num_envs_per_worker": train_envs,
     'q_model_config' : {
             # "dim": 112,
-            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+            "conv_filters" : [[16, [14, 14], 5], [32, [6,6], 4], [256, [11,11], 2]],
             # "conv_activation": "relu",
             "post_fcnet_hiddens": [256],
             "post_fcnet_activation": "relu",
         },
     'policy_model_config' : {
             # "dim": 112,
-            # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
+            "conv_filters" : [[16, [14, 14], 5], [32, [6,6], 4], [256, [11,11], 2]],
             # "conv_activation": "relu",
             "post_fcnet_hiddens": [256],
             "post_fcnet_activation": "relu",
@@ -108,7 +112,7 @@ config_param_space = {
     'target_network_update_freq': 1,
     'replay_buffer_config':{
         'type': 'MultiAgentPrioritizedReplayBuffer',
-        'capacity': int(1e5), #int(1e5)
+        'capacity': int(1e4), #int(1e5)
         "worker_side_prioritization": True,
     },
     'num_steps_sampled_before_learning_starts': 1024, #8000

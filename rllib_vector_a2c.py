@@ -1,5 +1,5 @@
 import os
-from src.customModel.customModel import TorchAttentionModel3, TorchAttentionModel4
+from src.customModel.customModel import TorchAttentionModel3, TorchVectorPPO
 
 from src.constant import SRC_PATH
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
@@ -55,7 +55,7 @@ env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cf
 
 tune.register_env("L5-CLE-V2", lambda config: L5Env2(**env_kwargs))
 ModelCatalog.register_custom_model( "TorchAttentionModel3", TorchAttentionModel3)
-ModelCatalog.register_custom_model( "TorchAttentionModel4", TorchAttentionModel4)
+ModelCatalog.register_custom_model( "TorchAttentionModel4", TorchVectorPPO)
 # tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapper(env = L5Env(**env_kwargs), \
 #                                                            raster_size= cfg['raster_params']['raster_size'][0], \
 # #                                                            n_channels = n_channels))

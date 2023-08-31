@@ -24,18 +24,18 @@ model_params:
 ## Data loader options
 train_data_loader:
   key: "train/train.zarr"
-  batch_size: 12
+  batch_size: 32
   shuffle: True
-  num_workers: 16
+  num_workers: 8
   ###################
   ## Only used for open-loop models
   perturb_probability: 0.5
 
 val_data_loader:
   key: "validate/validate.zarr"
-  batch_size: 12
+  batch_size: 32
   shuffle: False
-  num_workers: 16
+  num_workers: 8
 
 ###################
 ## Input raster parameters
@@ -77,5 +77,5 @@ data_generation_params:
 ## Train params
 train_params:
   checkpoint_every_n_steps: 100
-  max_num_steps: 5
+  max_num_steps: 10000
   eval_every_n_steps: 100

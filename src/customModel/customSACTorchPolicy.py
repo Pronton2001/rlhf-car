@@ -45,6 +45,8 @@ from ray.rllib.utils.typing import (
 )
 
 from src.constant import SRC_PATH
+from src.customEnv.action_utils import inverseUnicycle, standard_normalizer_kin, standard_normalizer_nonKin
+from src.customModel.utils import kl_mc, kl_approx
 torch, nn = try_import_torch()
 F = nn.functional
 
@@ -250,6 +252,9 @@ def actor_critic_loss(
             if not deterministic
             else action_dist_t.deterministic_sample()
         )
+        # log_pis_t: log of RL policy
+        # log_pi0s_t: log of Behavior Policy
+        
         log_pis_t = torch.unsqueeze(action_dist_t.logp(policy_t), -1)
         action_dist_inputs_tp1, _ = model.get_action_model_outputs(model_out_tp1)
         action_dist_tp1 = action_dist_class(action_dist_inputs_tp1, model)
@@ -291,7 +296,7 @@ def actor_critic_loss(
         q_tp1_best_masked = (1.0 - train_batch[SampleBatch.DONES].float()) * q_tp1_best
 
     # compute RHS of bellman equation
-    logging.debug(f'loss reward: {train_batch[SampleBatch.REWARDS]}')
+    # logging.debug(f'loss reward: {train_batch[SampleBatch.REWARDS]}')
     q_t_selected_target = (
         train_batch[SampleBatch.REWARDS]
         + (policy.config["gamma"] ** policy.config["n_step"]) * q_tp1_best_masked
@@ -511,9 +516,9 @@ from ray.rllib.utils.typing import (
 from l5kit.environment.envs.l5_env import L5Env, SimulationConfigGym
 from src.customEnv.wrapper import L5EnvWrapper
 from l5kit.configs import load_config_data
-env_config_path = 'src/configs/gym_config84.yaml'
-cfg = load_config_data(env_config_path)
 def rllib_model():
+    env_config_path = f'{SRC_PATH}src/configs/gym_config84.yaml'
+    cfg = load_config_data(env_config_path)
     train_envs = 4
     lr = 3e-3
     lr_start = 3e-4
@@ -595,17 +600,33 @@ def rllib_model():
     algo.restore(checkpoint_path)
     return rollout_env, algo
 
-_, pretrained_sac_model = rllib_model()
+def getBCPretrained():
+    model_path = f"{SRC_PATH}src/model/OL_HS.pt"
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = torch.load(model_path).to(device)
+    # model = SAC.load("/home/pronton/rl/l5kit/examples/RL/gg colabs/logs/SAC_640000_steps.zip")
+    model = model.eval()
+    # torch.set_grad_enabled(False)
+    for  name, param in model.named_parameters():
+        param.requires_grad = False
+    return model
+pretrained_policy = getBCPretrained()
+# Use sac_cnn pretrained model
+# _, pretrained_sac_model = rllib_model()
+# pretrained_policy = pretrained_sac_model.get_policy()
 
-pretrained_policy = pretrained_sac_model.get_policy()
+# Use BC pretrained model
+# pretrained_policy = getBCPretrained()
+
 # device = next(pretrained_policy.model.parameters()).device
 # logging.debug(f'>>>>>>>>>>>>>>>>>>>>..pretrained sac policy device:{device}')
 
 import numpy as np
-from ray.rllib.models.torch.torch_distributions import TorchDiagGaussian
-kl_div_weight = 0.1
-raster_size = 84
-n_channels = 7
+# from ray.rllib.models.torch.torch_distributions import TorchDiagGaussian
+# from ray.rllib.models.torch.torch_action_dist import TorchDiagGaussian 
+kl_div_weight = 1
+# raster_size = 84
+# n_channels = 7
 
 def custom_postprocess_trajectory(policy: Policy,
     sample_batch: SampleBatch,
@@ -613,146 +634,98 @@ def custom_postprocess_trajectory(policy: Policy,
     episode: Optional[Episode] = None,
 ) -> SampleBatch:
     # device = pretrained_sac_model()
-    logging.debug('somessssssssssssssssss')
+    # logging.debug(f'policy {policy}, dir: {policy.__dir__()}' )
+    # print(f'policy {policy.model}, dir: {policy.model.__dir__()}' )
     # change reward here
     # device = next(pretrained_policy.model.parameters()).device
     # logging.debug(f'>>>>>>>>>>>>>>>>>>>>..pretrained sac policy device:{device}')
-    # device = next(policy.model.parameters()).device
-    # logging.debug(f'>>>>>>>>>>>>>>>>>>>>.training sac policy device: {device}')
-    # device = 'cuda'
-    obs = sample_batch[SampleBatch.CUR_OBS]
-    if type(obs) == Dict:
-        obs = {k: torch.as_tensor(v) for k, v in sample_batch[SampleBatch.CUR_OBS].items()}
-    elif type(obs) == np.ndarray:
-        obs = torch.as_tensor(obs)
-    assert obs.shape[1:] == (84,84,7), f'{obs.shape[1:]} != (B, 84,84,7)'
-    pretrained_logits = pretrained_policy.compute_actions_from_input_dict({'obs': obs.view(-1, raster_size, raster_size, n_channels)})[2]['action_dist_inputs']
-    assert pretrained_logits.shape[1] == 6, 'Not (B, 6)'
-
-    # compute 2 action dist
-    logging.debug(f'pretrain action logits: {pretrained_logits}, device: {torch.as_tensor(pretrained_logits).device}')
-    logging.debug(f'training action logits: {sample_batch[SampleBatch.ACTION_DIST_INPUTS]}, device: {torch.as_tensor(sample_batch[SampleBatch.ACTION_DIST_INPUTS]).device}')
-    logging.debug(f'-----------------------')
-    
-    pretrained_action_dist = pretrained_policy.dist_class(torch.as_tensor(pretrained_logits), pretrained_policy.model)
     sac_action_dist =policy.dist_class(torch.as_tensor(sample_batch[SampleBatch.ACTION_DIST_INPUTS]), policy.model)
+    device = next(pretrained_policy.parameters()).device
+    # device = sac_action_dist.dist.scale.device
+    # pretrained_policy.to(device)
 
-    # compute kl div
-    # kl_div = sac_action_dist.kl(pretrained_action_dist)
-    pretrained_action_sample = pretrained_action_dist.deterministic_sample()
-    pretrained_logp =pretrained_action_dist.logp(pretrained_action_sample)
-    sac_action_sample = sac_action_dist.deterministic_sample()
-    sac_logp =sac_action_dist.logp(sac_action_sample)
+    # device = next(policy.model.action_model.pretrained_policy.parameters()).device
+    # device = sac_action_dist.inputs.device
+    # logging.debug(f'>>>>>>>>>>>>>>>>>>>>.pretrained_policy device: {device}')
+    # device = 'cuda'
+    # device = policy.action_model.device
+    obs = sample_batch[SampleBatch.CUR_OBS]
+    if type(obs) == dict:
+        obs = {k: torch.as_tensor(v).to(device) for k, v in sample_batch[SampleBatch.CUR_OBS].items()}
+        # for  k, v in obs.items():
+            # if k == 'agent_polyline_availability':
+            #     obs[k] = torch.as_tensor(v.shape[0] * [True, True, False, False], dtype = bool).view(v.shape[0], 4).to(device)
+            # else: 
+                # obs[k] = torch.as_tensor(v).to(device)
+        # obs = {k: torch.as_tensor(v).view(1, *torch.as_tensor(v).shape) for k, v in obs.items()}
+        # print('-----------------------------> OKOK')
+    elif type(obs) == np.ndarray:
+        obs = torch.as_tensor(obs).to(device)
+    # logging.debug(f"obs: {obs['agent_polyline_availability']}")
 
-    logging.debug(f'pretrain action deterministic sample: {pretrained_action_sample}')
-    logging.debug(f'training action deterministic sample: {sac_action_sample}')
-    logging.debug(f'-----------------------')
+    # NOTE: For SAC-CNN pretrained
+    # assert obs.shape[1:] == (84,84,7), f'{obs.shape[1:]} != (B, 84,84,7)'
+    # pretrained_logits = pretrained_policy.compute_actions_from_input_dict({'obs': obs.view(-1, raster_size, raster_size, n_channels)})[2]['action_dist_inputs']
+    # assert pretrained_logits.shape[1] == 6, 'Not (B, 6)'
 
-    logging.debug(f'pretrain action logp sample: {pretrained_logp}')
-    logging.debug(f'training action logp sample: {sac_logp}')
-    logging.debug(f'-----------------------')
+    # NOTE: For BC-T pretrained
+    # assert obs.shape[1:] == (84,84,7), f'{obs.shape[1:]} != (B, 84,84,7)'
+    logits = pretrained_policy(obs) # check this
+    if type(logits) == dict: # TODO: Change Vectorized output from dict -> numpy.ndarray
+        pred_x = logits['positions'][:,0, 0].view(-1,1)# take the first action 
+        pred_y = logits['positions'][:,0, 1].view(-1,1)# take the first action
+        pred_yaw = logits['yaws'][:,0,:].view(-1,1)# take the first action
+    else: # np.ndarray type
+        batch_size = len(obs)
+        predicted = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
+        pred_x = predicted[:, 0, 0].view(-1,1) # take the first action 
+        pred_y = predicted[:, 0, 1].view(-1,1) # take the first action
+        pred_yaw = predicted[:, 0, 2].view(-1,1)# take the first action
+        
+    # output_logits = torch.cat((pred_x, pred_y, pred_yaw),  dim = -1)
+    # convert to acc, steer
+    output_logits = inverseUnicycle(pred_x, pred_y, pred_yaw, obs['old_speed']) # B, 1
+    # logging.debug(f'inverse Unicycle: {output_logits}')
+    # steer, acc = actions['steer'], actions['acc']
+     
+    # print('-----------------------------> before', output_logits)
+    output_logits = standard_normalizer_kin(output_logits) # scale actions
+    # logging.debug(f'normalize actions: {output_logits}')
+    # print('-----------------------------> after normalize', output_logits)
 
+    ones = torch.ones_like(pred_x) 
 
-    kl_div =(sac_logp- pretrained_logp)
-    # print('kl_div', kl_div)
-
-    # print(f'reward before: {sample_batch[SampleBatch.REWARDS]},\
-    #       shape: {sample_batch[SampleBatch.REWARDS].shape}')
-    # logging.debug(f'reward shape{sample_batch[SampleBatch.REWARDS].shape}')
-    logging.debug(f'kl_div: {kl_div}')
-    kl_div = kl_div.cpu().numpy()
-    # self.kl_il_rl = kl_div.mean()
-    #logging.debug('kl div:', kl_div* self.kl_div_weight)
-    # self.rs_after = kl_div.cpu().numpy().mean()
-    sample_batch[SampleBatch.REWARDS] -=  kl_div* kl_div_weight
-    # print( sample_batch[SampleBatch.REWARDS].device)
-    # self.regularized_rewards= sample_batch[SampleBatch.REWARDS]
-
-    # print(f'reward after: {sample_batch[SampleBatch.REWARDS]},\
-    #       shape: {sample_batch[SampleBatch.REWARDS].shape}')
-
-    # if type(logits) == Dict: 
-    #     pred_x = logits['positions'][:,0, 0].view(-1,1)# take the first action 
-    #     pred_y = logits['positions'][:,0, 1].view(-1,1)# take the first action
-    #     pred_yaw = logits['yaws'][:,0,:].view(-1,1)# take the first action
-    # else: # np.ndarray type
-    #     batch_size = len(obs)
-    #     predicted = logits.view(batch_size, -1, 3) # B, N, 3 (X,Y,yaw)
-    #     pred_x = predicted[:, 0, 0].view(-1,1) # take the first action 
-    #     pred_y = predicted[:, 0, 1].view(-1,1) # take the first action
-    #     pred_yaw = predicted[:, 0, 2].view(-1,1)# take the first action
-    # ones = torch.ones_like(pred_x) 
-
-    # # lx, ly, lyaw= policy.model.log_std_x, policy.model.log_std_y, policy.model.log_std_yaw
-    # output_logits = torch.cat((pred_x, pred_y, pred_yaw), dim = -1)
-    # model.get_policy().compute_actions_from_input_dict({'obs':obs.reshape(-1,84,84,7)})
-    # lx, ly, lyaw = -5, -5, -5
+    std_acc, std_steer= policy.model.action_model.log_std_acc, policy.model.action_model.log_std_steer
+    output_logits = torch.cat((output_logits, ones * std_acc, ones * std_steer), dim = -1)
     # output_logits_std = torch.cat((ones*lx, ones * ly, ones * lyaw), dim = -1)
     
-    # # 
-    # pretrained_action_dist = TorchDiagGaussian(loc=output_logits, scale=torch.exp(output_logits_std))
-    # pretrained_action_dist = TorchSquashedGaussian(inputs= output_logits, scale=torch.exp(output_logits_std))
+    pretrained_action_dist = TorchDiagGaussian(output_logits, None)
+    # assert pretrained_logits.shape[1] == 6, 'Not (B, 6)'
 
+
+    # logging.debug(f'pretrain action logits: {pretrained_logits}, device: {torch.as_tensor(pretrained_logits).device}')
+    # logging.debug(f'training action logits: {sample_batch[SampleBatch.ACTION_DIST_INPUTS]}, device: {torch.as_tensor(sample_batch[SampleBatch.ACTION_DIST_INPUTS]).device}')
+    # logging.debug(f'-----------------------')
     
-    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # print('device:', device)
-    # ppo_logits, _ = self.model.forward({'obs': obs.to(device)} ,None,None)
-    # print(f'ppo logits: {ppo_logits}')
-    # print('----------------')
-    # # ppo_logits = ppo_logits.to(self.device)
-    # assert ppo_logits.shape[1] == 6, f'{ppo_logits.shape} != torch.Size([x,6])'
-    # ppo_action_dist =policy.dist_class(torch.as_tensor(sample_batch[SampleBatch.ACTION_DIST_INPUTS]).to(device), policy.model)
+    # compute 2 action dist
+    # pretrained_action_dist = pretrained_policy.dist_class(torch.as_tensor(pretrained_logits), pretrained_policy.model)
 
-    
-    
-    # Create a distribution from the pretrained model
-    # pretrained_dist = pretrained_action_dist.sample()
-    
-    # Calculate the KL divergence between the PPO and pretrained distributions
-    # kl_div = torch.distributions.kl_divergence(
-    #     self.action_dist, pretrained_dist).mean()
+    ############ Compute kl div ###################
+    kl_div = kl_approx(sac_action_dist, pretrained_action_dist)
 
-    # print(f'ppo action dist sample {ppo_action_dist.dist.sample()}')
-    # print(f'pretrain action dist sample {pretrained_action_dist.dist.sample()}')
-    # print('----------------')
-    # logging.debug(f'ppo action dist {ppo_action_dist.dist}')
-    # logging.debug(f'pretrain action dist {pretrained_action_dist.dist}')
-    # kl_div = ppo_action_dist.kl(pretrained_action_dist)
-    # # print(f'kl_div: {kl_div}, shape: {kl_div.shape}')
-    # # kl_div = pretrained_action_dist.kl(ppo_action_dist)
-    # # kl_div = kl_divergence(pretrained_dist)
-    # # reversed_kl_div = pretrained_action_dist.kl(ppo_action_dist)
-    # # print(f'reversed kl_div: {reversed_kl_div}, shape: {reversed_kl_div.shape}')
-    # # print('----------------')
-    
-    # # Add the KL penalty to the rewards
-    # # self.my_cur_rewards = sample_batch[SampleBatch.REWARDS]
-    # print(f'reward before: {sample_batch[SampleBatch.REWARDS]},\
-    #       shape: {sample_batch[SampleBatch.REWARDS].shape}')
-    # # logging.debug(f'reward shape{sample_batch[SampleBatch.REWARDS].shape}')
-    # # logging.debug(f'kl shape{kl_div.shape}, kl_div: {kl_div}')
-    # kl_div = kl_div.cpu().numpy()
-    # # self.kl_il_rl = kl_div.mean()
-    # #logging.debug('kl div:', kl_div* self.kl_div_weight)
-    # # self.rs_after = kl_div.cpu().numpy().mean()
-    # sample_batch[SampleBatch.REWARDS] -=  kl_div* kl_div_weight
-    # # print( sample_batch[SampleBatch.REWARDS].device)
-    # self.regularized_rewards= sample_batch[SampleBatch.REWARDS]
 
-    # print(f'reward after: {sample_batch[SampleBatch.REWARDS]},\
-    #       shape: {sample_batch[SampleBatch.REWARDS].shape}')
+    kl_div = kl_div.cpu().numpy()
+    # logging.debug(f'kl_div: {kl_div}')
+    sample_batch[SampleBatch.REWARDS] -=  kl_div* kl_div_weight
+    # logging.debug(f'kl_div_weight: {kl_div* policy.model.action_model.kl_div_weight}')
 
-        # print('----------------')
-    # sample_batch[SampleBatch.REWARDS] = 
-
-    logging.debug('somessssssssssssssssss')
     return postprocess_trajectory(policy, sample_batch, other_agent_batches, episode = None,)
 
 # Build a child class of `TorchPolicy`, given the custom functions defined
 # above.
 
-KLSACTorchPolicy = build_policy_class(
-    name="KLSACTorchPolicy",
+KLRewardSACTorchPolicy = build_policy_class(
+    name="KLRewardSACTorchPolicy",
     framework="torch",
     loss_fn=actor_critic_loss,
     get_default_config=lambda: ray.rllib.algorithms.sac.sac.DEFAULT_CONFIG,

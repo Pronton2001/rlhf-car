@@ -1,5 +1,5 @@
 import os
-from src.customModel.customModel import TorchAttentionModel3, TorchAttentionModel4
+from src.customModel.customModel import TorchAttentionModel3, TorchVectorPPO
 
 from src.constant import SRC_PATH
 os.environ["L5KIT_DATA_FOLDER"] = '/workspace/datasets'
@@ -44,18 +44,27 @@ cfg = load_config_data(env_config_path)
 # n_channels = (cfg['model_params']['future_num_frames'] + 1)* 2 + 3
 # print(cfg['model_params']['future_num_frames'], cfg['model_params']['history_num_frames'], n_channels)
 from ray import tune
-from src.customEnv.wrapper import L5EnvWrapper, L5EnvWrapperTorch
+from src.customEnv.wrapper import L5Env2WrapperTorchCLEReward, L5EnvWrapper, L5EnvWrapperTorch
 train_eps_length = 32
 train_sim_cfg = SimulationConfigGym()
 train_sim_cfg.num_simulation_steps = train_eps_length + 1
 
 
 # Register , how your env should be constructed (always with 5, or you can take values from the `config` EnvContext object):
+
 env_kwargs = {'env_config_path': env_config_path, 'use_kinematic': True, 'sim_cfg': train_sim_cfg}
 
-tune.register_env("L5-CLE-V2", lambda config: L5Env2(**env_kwargs))
-ModelCatalog.register_custom_model( "TorchAttentionModel3", TorchAttentionModel3)
-ModelCatalog.register_custom_model( "TorchAttentionModel4", TorchAttentionModel4)
+# tune.register_env("L5-CLE-V2", lambda config: L5Env2(**env_kwargs))
+reward_kwargs = {
+    'yaw_weight': 1.0,
+    'dist_weight': 1.0,
+    'cf_weight': 20.0,
+    'cr_weight': 20.0,
+    'cs_weight': 20.0,
+}
+tune.register_env("L5-CLE-V2", lambda config: L5Env2WrapperTorchCLEReward(L5Env2(**env_kwargs), reward_kwargs=reward_kwargs))
+ModelCatalog.register_custom_model( "TorchAttentionModel4", TorchVectorPPO)
+#################### Wandb ####################
 # tune.register_env("L5-CLE-V1", lambda config: L5EnvWrapper(env = L5Env(**env_kwargs), \
 #                                                            raster_size= cfg['raster_params']['raster_size'][0], \
 # #                                                            n_channels = n_channels))
@@ -83,7 +92,7 @@ import ray
 from ray import air, tune
 hcmTz = pytz.timezone("Asia/Ho_Chi_Minh") 
 date = datetime.datetime.now(hcmTz).strftime("%d-%m-%Y_%H-%M-%S")
-ray_result_logdir = '/home/pronton/ray_results/debug_vector/impala_separated_kin_hist3' + date
+ray_result_logdir = '/home/pronton/ray_results/luanvan/changedReward/debug/IMPALA-T_nonfreeze_nonload_CLEreward_non_shared' + date
 
 train_envs = 4
 lr = 3e-5
@@ -95,24 +104,17 @@ config_param_space = {
     "env": "L5-CLE-V2",
     "framework": "torch",
     "num_gpus": 1,
-    "num_workers": 32,
+    "num_workers": 8,
     "num_envs_per_worker": train_envs,
     "model": {
         "custom_model": "TorchAttentionModel4",
-        "custom_model_config": {'cfg':cfg,
-                                'freeze_actor': False,
-                                'shared_feature_extractor': False,
-                                },
+            "custom_model_config": {
+                'cfg':cfg,
+                'freeze_for_RLtuning':  False,
+                'load_pretrained': False,
+                'shared_feature_extractor': False,
+        },
     },
-    
-    # 'model' : {
-    #         # "dim": 84,
-    #         # "conv_filters" : [[64, [7,7], 3], [32, [11,11], 3], [32, [11,11], 3]],
-    #         # "conv_activation": "relu",
-    #         "post_fcnet_hiddens": [256],
-    #         "post_fcnet_activation": "relu",
-    #         "vf_share_layers": False,   
-    # },
     
     '_disable_preprocessor_api': True,
      "eager_tracing": True,
@@ -120,17 +122,14 @@ config_param_space = {
     "lr": lr,
     'seed': 42,
     "lr_schedule": [
-        # [0, lr],
-        # [1e6, lr_start],
-        # [2e6, lr_end],
-        [0, 0.00005],
-        [20000000, 0.000000000001],
+        [7e5, lr_start],
+        [2e6, lr_end],
     ],
     
-    'train_batch_size': 500, # 8000 
-    # 'sgd_minibatch_size': 512, #2048
-    # 'num_sgd_iter': 10,#16,
-    # 'batch_mode': 'truncate_episodes',
+    'train_batch_size': 1024, # 8000 
+    'sgd_minibatch_size': 512, #2048
+    'num_sgd_iter': 10,#16,
+    'batch_mode': 'truncate_episodes',
     # "rollout_fragment_length": 32,
     'gamma': 0.8,    
 }

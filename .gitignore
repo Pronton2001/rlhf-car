@@ -170,3 +170,4 @@ agents_mask/
 *.zip
 *wandb*
 *html
+*.obj
